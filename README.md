@@ -4,6 +4,8 @@ A custom 8-line colored statusline for [Claude Code](https://claude.com/claude-c
 
 ## What it looks like
 
+The preview below is plain text; in a real terminal every line is colored — dim labels, a truecolor gradient on the context bar, green/yellow/red zones on the rate-limit bars, distinct model and effort-level hues. See [`SPEC.md`](SPEC.md) for the full color spec.
+
 ```
 claude-statusline ⬠ main · +25 -7
 Model   Claude Opus 4.7  xhigh

@@ -54,8 +54,8 @@ One non-standard read: `effortLevel` is pulled from `~/.claude/settings.json` (u
 
 1. **Git info** (unlabeled, flush-left): `<repo_name> ⬠ <branch> · +N -N`. Omitted entirely if CWD is unknown.
 2. **`Model  `** — `<model>` + effort level
-3. **`Context`** — 30-char progress bar, percentage, optional `⚠ 200k+`, optional `compact Nx`
-4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`
+3. **`Context`** — 30-char progress bar, percentage, optional `compact Nx`
+4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size (not cumulative `In + Out` session totals), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
 7. **(unlabeled, 8-space indent)** — 20-char 7d bar, `7D <pct>%`, reset time
