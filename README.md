@@ -17,6 +17,10 @@ Limits  ████░░░░░░░░░░░░░░░░ 5H 22% ↺ 
 abc12345-6789-defg-hijk-lmnopqrstuvw · 2026.04.22 00:35:17
 ```
 
+The context bar is a smooth truecolor gradient — darkest gray at 0%, white at 60%, red from 70% on, with a white-to-yellow-to-red transition in between:
+
+![Context bar color gradient from 0% to 90%](docs/context-bar-gradient.png)
+
 ## Features
 
 - **Smooth truecolor context bar** — dark gray → white → yellow → red gradient. White at 60%, pure red at 70%+. Reads cooler during headroom, gets loud at the danger zone.
