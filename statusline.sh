@@ -4,8 +4,8 @@ input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 EFFORT_LEVEL=$(jq -r '.effortLevel // "default"' ~/.claude/settings.json 2>/dev/null || echo "default")
-SESSION_ID=$(echo "$input" | jq -r '.session_id // ""' | tr -dc 'a-zA-Z0-9' | cut -c1-24)
-SESSION_NAME=$(echo "$input" | jq -r '.session_name // ""')
+SESSION_ID_RAW=$(echo "$input" | jq -r '.session_id // ""')
+SESSION_ID=$(echo "$SESSION_ID_RAW" | tr -dc 'a-zA-Z0-9' | cut -c1-24)
 EXCEEDS_200K=$(echo "$input" | jq -r '.exceeds_200k_tokens // false')
 COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 USED=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
@@ -92,6 +92,7 @@ ORANGE="\033[38;5;208m"
 BLUE="\033[34m"
 RED="\033[31m"
 PURPLE="\033[38;5;135m"
+BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
 
 # Session/Weekly color
@@ -111,19 +112,39 @@ else
   WEEKLY_COLOR="$GREEN"
 fi
 
-# Context window bar color
-if [ "$USED" -gt 70 ]; then
-  CONTEXT_BAR_COLOR="$RED"
-elif [ "$USED" -gt 60 ]; then
-  CONTEXT_BAR_COLOR="$YELLOW"
+# Context window bar color: smooth truecolor gradient.
+# 0-60%: dark gray (50,50,50) linearly up to white (255,255,255).
+# 60-70%: white through yellow to red. R stays 255;
+#   G drops 255->0 across the 10% window; B drops 255->0 over the first 5%.
+# >70%: solid red.
+if [ "$USED" -lt 60 ]; then
+  CONTEXT_V=$(( 50 + (255 - 50) * USED / 60 ))
+  CONTEXT_R=$CONTEXT_V; CONTEXT_G=$CONTEXT_V; CONTEXT_B=$CONTEXT_V
+elif [ "$USED" -le 70 ]; then
+  CONTEXT_R=255
+  CONTEXT_G=$(( 255 - (USED - 60) * 255 / 10 ))
+  if [ "$USED" -le 65 ]; then
+    CONTEXT_B=$(( 255 - (USED - 60) * 255 / 5 ))
+  else
+    CONTEXT_B=0
+  fi
 else
-  CONTEXT_BAR_COLOR="$GREEN"
+  CONTEXT_R=255; CONTEXT_G=0; CONTEXT_B=0
 fi
+CONTEXT_BAR_COLOR="\033[38;2;${CONTEXT_R};${CONTEXT_G};${CONTEXT_B}m"
 
 # Context window progress bar
-FILLED=$(( USED * 40 / 100))
-EMPTY=$(( 40 - FILLED ))
+FILLED=$(( USED * 30 / 100))
+EMPTY=$(( 30 - FILLED ))
 CONTEXT_BAR=$(printf "%${FILLED}s" | tr ' ' '█')$(printf "%${EMPTY}s" | tr ' ' '░')
+
+# 5h / 7d rate limit progress bars (same width as context bar)
+SESSION_FILLED=$(( SESSION_PCT * 20 / 100 ))
+SESSION_EMPTY=$(( 20 - SESSION_FILLED ))
+SESSION_BAR=$(printf "%${SESSION_FILLED}s" | tr ' ' '█')$(printf "%${SESSION_EMPTY}s" | tr ' ' '░')
+WEEKLY_FILLED=$(( WEEKLY_PCT * 20 / 100 ))
+WEEKLY_EMPTY=$(( 20 - WEEKLY_FILLED ))
+WEEKLY_BAR=$(printf "%${WEEKLY_FILLED}s" | tr ' ' '█')$(printf "%${WEEKLY_EMPTY}s" | tr ' ' '░')
 
 # Duration
 MINS=$(( DURATION_MS / 60000 ))
@@ -137,13 +158,15 @@ case "$MODEL" in
   *)       MODEL_COLOR="$CYAN" ;;
 esac
 
-# Effort level color
+# Effort level color (aligned with Claude Code's /effort picker:
+# low=warning(yellow), medium=success(green), high=permission(blue),
+# xhigh=autoAccept(magenta), max=rainbow→bright white fallback)
 case "$EFFORT_LEVEL" in
-  low)    EFFORT_COLOR="$DIM" ;;
+  low)    EFFORT_COLOR="$YELLOW" ;;
   medium) EFFORT_COLOR="$GREEN" ;;
-  high)   EFFORT_COLOR="$YELLOW" ;;
-  xhigh)  EFFORT_COLOR="$ORANGE" ;;
-  max)    EFFORT_COLOR="$RED" ;;
+  high)   EFFORT_COLOR="$BLUE" ;;
+  xhigh)  EFFORT_COLOR="$MAGENTA" ;;
+  max)    EFFORT_COLOR="$BRIGHT_WHITE" ;;
   *)      EFFORT_COLOR="$DIM" ;;
 esac
 
@@ -178,18 +201,28 @@ NOW_DATETIME=$(date "+%Y.%m.%d %H:%M:%S")
 WHOAMI=$(whoami)
 HOST_SHORT=$(hostname -s)
 
+GIT_LINE=""
+[ -n "$SHORT_DIR" ] && GIT_LINE="${CYAN}${SHORT_DIR}${RESET}"
+[ -n "$GIT_BRANCH" ] && GIT_LINE="${GIT_LINE} ${DIM}⬠${RESET} ${GREEN}${GIT_BRANCH}${RESET}"
+[ -n "$GIT_DIFF_FMT" ] && GIT_LINE="${GIT_LINE} ${DIM}·${RESET} ${GIT_DIFF_FMT}"
+[ -n "$GIT_LINE" ] && echo -e "$GIT_LINE"
+
 MODEL_LINE="${DIM}Model  ${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
-[ -n "$SESSION_NAME" ] && MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}${SESSION_NAME}${RESET}"
 echo -e "$MODEL_LINE"
 
-CONTEXT_LINE="${DIM}Context${RESET} ${DIM}${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
+CONTEXT_LINE="${DIM}Context${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
 [ "$EXCEEDS_200K" = "true" ] && CONTEXT_LINE="${CONTEXT_LINE} ${RED}⚠ 200k+${RESET}"
 [ "$COMPACT_COUNT" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}compact ${COMPACT_COUNT}x${RESET}"
 echo -e "$CONTEXT_LINE"
 
 TOKENS_LINE="${DIM}Tokens ${RESET} ${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
-[ -n "$GIT_DIFF_FMT" ] && TOKENS_LINE="${TOKENS_LINE} ${DIM}·${RESET} ${GIT_DIFF_FMT}"
-[ -n "$GIT_BRANCH" ] && TOKENS_LINE="${TOKENS_LINE} ${DIM}·${RESET} ${DIM}⬠${RESET} ${GREEN}${GIT_BRANCH}${RESET} ${CYAN}${SHORT_DIR}${RESET}"
 echo -e "$TOKENS_LINE"
-echo -e "${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
-echo -e "${DIM}Limits ${RESET} ${DIM}5H${RESET} ${SESSION_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT} ${DIM}·${RESET} ${DIM}7D${RESET} ${WEEKLY_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+echo -e "${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
+echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
+echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+
+if [ -n "$SESSION_ID_RAW" ]; then
+  echo -e "${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
+else
+  echo -e "${DIM}${NOW_DATETIME}${RESET}"
+fi
