@@ -87,3 +87,7 @@ echo '{"model":{"display_name":"Claude Opus 4.7"},"session_id":"abc","cost":{"to
 ## Spec
 
 See [`SPEC.md`](SPEC.md) for the authoritative layout, color formulas, IPC invariants, and JSON contract.
+
+## License
+
+MIT — see [`LICENSE`](LICENSE).
