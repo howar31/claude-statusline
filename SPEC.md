@@ -76,7 +76,7 @@ If you change a width, update the matching `pct * N / 100` calculation.
 
 ## Color specification
 
-ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `ORANGE`, `BLUE`, `RED`, `PURPLE`, `BRIGHT_WHITE`, `DIM`.
+ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `PURPLE`, `BRIGHT_WHITE`, `DIM`.
 
 ### Context bar — smooth truecolor gradient (`\033[38;2;R;G;Bm`)
 
@@ -90,13 +90,15 @@ ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, 
 
 The context bar is **not** wrapped in DIM — the gradient renders at full intensity. Don't add DIM back.
 
-### Rate limit bars (5h / 7d) — discrete zones
+### Rate limit bars (5h / 7d) — smooth truecolor gradient (`\033[38;2;R;G;Bm`)
 
-- `pct ≤ 75%` → `$GREEN` (ANSI 32), wrapped in DIM on the bar so it reads as dim green
-- `76% ≤ pct ≤ 90%` → `$YELLOW` (ANSI 33)
-- `pct > 90%` → `$RED` (ANSI 31)
+- **0–50%**: grayscale ramp. `R=G=B = 50 + (255-50) * pct / 50`. 0% → `(50,50,50)` darkest gray; 50% → `(255,255,255)` white.
+- **50–70%**: white → green. `R = B = 255 - (pct-50) * 255 / 20`; `G = 255`. Waypoint: 70% = `(0,255,0)` pure green.
+- **70–80%**: green → yellow. `R = (pct-70) * 255 / 10`; `G = 255`; `B = 0`. Waypoint: 80% = `(255,255,0)` pure yellow.
+- **80–90%**: yellow → red. `R = 255`; `G = 255 - (pct-80) * 255 / 10`; `B = 0`. Waypoint: 90% = `(255,0,0)` pure red.
+- **>90%**: solid red `(255,0,0)`.
 
-The percentage number uses the same zone color without DIM so it stays legible.
+The bar is wrapped in DIM so the gradient reads softly against labels; the percentage uses the same truecolor **without** DIM so the number stays legible. The `Limits ` label, the `5H` / `7D` markers, and the `↺` reset separator are also DIM.
 
 ### Model family
 

@@ -4,7 +4,7 @@ A custom 8-line colored statusline for [Claude Code](https://claude.com/claude-c
 
 ## What it looks like
 
-The preview below is plain text; in a real terminal every line is colored — dim labels, a truecolor gradient on the context bar, green/yellow/red zones on the rate-limit bars, distinct model and effort-level hues. See [`SPEC.md`](SPEC.md) for the full color spec.
+The preview below is plain text; in a real terminal every line is colored — dim labels, truecolor gradients on the context and rate-limit bars, distinct model and effort-level hues. See [`SPEC.md`](SPEC.md) for the full color spec.
 
 ```
 claude-statusline ⬠ main · +25 -7
@@ -21,10 +21,18 @@ The context bar is a smooth truecolor gradient — darkest gray at 0%, white at 
 
 ![Context bar color gradient from 0% to 90%](docs/context-bar-gradient.png)
 
+The 5h / 7d limit bars use a similar gradient but with later waypoints (white at 50%, pure green at 70%, pure yellow at 80%, pure red at 90%), so they stay grayscale during normal headroom and only light up as you approach your quota:
+
+![Limit bar color gradient from 5% to 100%](docs/limit-bar-gradient.png)
+
+Model family and effort level are color-coded independently — Opus is purple, Haiku is green, anything else (Sonnet etc.) falls back to cyan. Effort mirrors Claude Code's `/effort` picker palette: yellow / green / blue / magenta / bright-white for low / medium / high / xhigh / max:
+
+![Model family and effort level color swatches](docs/model-effort-colors.png)
+
 ## Features
 
 - **Smooth truecolor context bar** — dark gray → white → yellow → red gradient. White at 60%, pure red at 70%+. Reads cooler during headroom, gets loud at the danger zone.
-- **Separate 5h / 7d rate-limit bars** with discrete green / yellow / red zones and `↺` reset times.
+- **Separate 5h / 7d rate-limit bars** with a truecolor gradient (gray → white → green → yellow → red, saturating at 90%) and `↺` reset times.
 - **Git line** up top: repo name, branch, `+N -N` diff counts.
 - **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white).
 - **Compact counter** — a companion `PreCompact` hook tracks how many times `/compact` has fired this session; the renderer surfaces it as `compact Nx` on the context line.

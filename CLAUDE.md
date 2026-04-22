@@ -20,7 +20,7 @@ Two scripts:
 - **Every `jq` lookup in `statusline.sh` must have a `//` default.** Claude Code may add or rename schema fields; the script must degrade gracefully.
 - **Cross-platform `date`**: use the BSD-or-GNU fallback `date -r "$EPOCH" "+%H:%M" 2>/dev/null || date -d "@$EPOCH" "+%H:%M" 2>/dev/null`. Keep it when adding new time displays.
 - **Session id sanitization** (`tr -dc 'a-zA-Z0-9' | cut -c1-24`) is the IPC key shared by `statusline.sh` and `hooks/compact-monitor.sh`. Change one, change both.
-- **The context bar must not be wrapped in DIM** — it uses 24-bit truecolor and DIM collapses the gradient.
+- **The context bar must not be wrapped in DIM** — it uses 24-bit truecolor and DIM collapses the gradient. (The 5h / 7d limit bars are also truecolor but are intentionally wrapped in DIM for a softer look — that's a deliberate aesthetic choice, not a precedent to copy.)
 - **Bar widths**: context 30 chars, 5h/7d 20 chars. If you change one, update its `pct * N / 100` calculation too.
 
 ## Testing

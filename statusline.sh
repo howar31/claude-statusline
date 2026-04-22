@@ -83,34 +83,47 @@ fi
 
 # Colors
 RESET="\033[0m"
-BOLD="\033[1m"
 CYAN="\033[36m"
 MAGENTA="\033[35m"
 GREEN="\033[32m"
 YELLOW="\033[33m"
-ORANGE="\033[38;5;208m"
 BLUE="\033[34m"
 RED="\033[31m"
 PURPLE="\033[38;5;135m"
 BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
 
-# Session/Weekly color
-if [ "$SESSION_PCT" -gt 90 ]; then
-  SESSION_COLOR="$RED"
-elif [ "$SESSION_PCT" -gt 75 ]; then
-  SESSION_COLOR="$YELLOW"
-else
-  SESSION_COLOR="$GREEN"
-fi
-
-if [ "$WEEKLY_PCT" -gt 90 ]; then
-  WEEKLY_COLOR="$RED"
-elif [ "$WEEKLY_PCT" -gt 75 ]; then
-  WEEKLY_COLOR="$YELLOW"
-else
-  WEEKLY_COLOR="$GREEN"
-fi
+# Limit bar (5h / 7d) color: smooth truecolor gradient.
+# 0-50%: dark gray (50,50,50) linearly up to white (255,255,255).
+# 50-70%: white through tinted green to pure green (0,255,0).
+#   G stays 255; R and B drop 255->0 across the 20% window together.
+# 70-80%: green to yellow (255,255,0). R rises 0->255; G=255; B=0.
+# 80-90%: yellow to red (255,0,0). R=255; G drops 255->0; B=0.
+# >90%: solid red.
+limit_bar_color() {
+  local pct=$1 r g b v
+  if [ "$pct" -lt 50 ]; then
+    v=$(( 50 + (255 - 50) * pct / 50 ))
+    r=$v; g=$v; b=$v
+  elif [ "$pct" -le 70 ]; then
+    r=$(( 255 - (pct - 50) * 255 / 20 ))
+    g=255
+    b=$(( 255 - (pct - 50) * 255 / 20 ))
+  elif [ "$pct" -le 80 ]; then
+    r=$(( (pct - 70) * 255 / 10 ))
+    g=255
+    b=0
+  elif [ "$pct" -le 90 ]; then
+    r=255
+    g=$(( 255 - (pct - 80) * 255 / 10 ))
+    b=0
+  else
+    r=255; g=0; b=0
+  fi
+  printf '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"
+}
+SESSION_BAR_COLOR=$(limit_bar_color "$SESSION_PCT")
+WEEKLY_BAR_COLOR=$(limit_bar_color "$WEEKLY_PCT")
 
 # Context window bar color: smooth truecolor gradient.
 # 0-60%: dark gray (50,50,50) linearly up to white (255,255,255).
@@ -219,8 +232,8 @@ TOKENS_LINE="${DIM}Tokens ${RESET} "
 TOKENS_LINE="${TOKENS_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
 echo -e "$TOKENS_LINE"
 echo -e "${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
-echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
-echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
+echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
 
 if [ -n "$SESSION_ID_RAW" ]; then
   echo -e "${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
