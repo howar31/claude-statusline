@@ -236,7 +236,18 @@ echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} 
 echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
 
 if [ -n "$SESSION_ID_RAW" ]; then
-  echo -e "${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
+  LAST_LINE="${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
 else
-  echo -e "${DIM}${NOW_DATETIME}${RESET}"
+  LAST_LINE="${DIM}${NOW_DATETIME}${RESET}"
 fi
+
+# Append ~/.claude backup drift indicator on the same line so line count stays
+# constant (no UI jump). Flag file is written by claude-git-snapshot.sh.
+DRIFT_FLAG="$HOME/.claude/.drift-status"
+if [ -f "$DRIFT_FLAG" ]; then
+  DRIFT_TEXT=$(cat "$DRIFT_FLAG" 2>/dev/null)
+  if [ -n "$DRIFT_TEXT" ]; then
+    LAST_LINE="${LAST_LINE} ${DIM}·${RESET} ${YELLOW}⚠ ${DRIFT_TEXT}${RESET}"
+  fi
+fi
+echo -e "$LAST_LINE"
