@@ -18,13 +18,21 @@ A pass-through `PreCompact` hook. Reads stdin, increments the `count` field in `
 
 ## Out-of-band IPC
 
-The hook writes, the renderer reads: `/tmp/claude-compacts-<SANITIZED_SESSION_ID>.json`. Both sides compute the key identically:
+The renderer reads two state files written by external processes; neither is part of the statusline JSON payload.
+
+### Compact counter
+
+The `PreCompact` hook writes, the renderer reads: `/tmp/claude-compacts-<SANITIZED_SESSION_ID>.json`. Both sides compute the key identically:
 
 ```bash
 sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 ```
 
 **Invariant**: if you change the sanitization rule in one file, change it in the other, or the renderer will miss the count.
+
+### Backup drift flag
+
+`claude-backup.sh git` (from the separate `claude-backup` repo, symlinked at `~/.claude/system/backup`) writes, the renderer reads: `~/.claude/system/backup/.drift-status`. If the file exists and is non-empty, its contents render as the line-8 drift indicator (`⚠ <text>`, yellow); if absent or empty, nothing is shown. This path is owned by the backup project, not this repo — the renderer is a read-only consumer that degrades silently when the file is missing.
 
 ## Input JSON schema
 
@@ -59,7 +67,7 @@ One non-standard read: `effortLevel` is pulled from `~/.claude/settings.json` (u
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
 7. **(unlabeled, 8-space indent)** — 20-char 7d bar, `7D <pct>%`, reset time
-8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`
+8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
 
 ### Alignment rules
 

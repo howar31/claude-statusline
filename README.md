@@ -37,6 +37,7 @@ Model family and effort level are color-coded independently — Opus is purple, 
 - **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white).
 - **Compact counter** — a companion `PreCompact` hook tracks how many times `/compact` has fired this session; the renderer surfaces it as `compact Nx` on the context line.
 - **Raw session id on the last line** — copy-pasteable into `claude --resume <id>` (Claude Code doesn't do prefix matching, so the full UUID is shown).
+- **Optional backup drift indicator** — if a `~/.claude/system/backup/.drift-status` flag file exists (written by an external backup script of your own), its text is appended to the last line as `⚠ <text>`. Absent that file, nothing shows — so this is inert unless you opt in.
 
 ## Requirements
 

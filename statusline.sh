@@ -242,8 +242,8 @@ else
 fi
 
 # Append ~/.claude backup drift indicator on the same line so line count stays
-# constant (no UI jump). Flag file is written by claude-git-snapshot.sh.
-DRIFT_FLAG="$HOME/.claude/.drift-status"
+# constant (no UI jump). Flag file is written by claude-backup.sh git.
+DRIFT_FLAG="$HOME/.claude/system/backup/.drift-status"
 if [ -f "$DRIFT_FLAG" ]; then
   DRIFT_TEXT=$(cat "$DRIFT_FLAG" 2>/dev/null)
   if [ -n "$DRIFT_TEXT" ]; then
