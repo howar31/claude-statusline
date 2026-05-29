@@ -83,7 +83,7 @@ If you change a width, update the matching `pct * N / 100` calculation.
 
 ## Color specification
 
-ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `PURPLE`, `BRIGHT_WHITE`, `DIM`.
+ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `BRIGHT_RED`, `PURPLE`, `BRIGHT_WHITE`, `DIM`.
 
 ### Context bar — smooth truecolor gradient (`\033[38;2;R;G;Bm`)
 
