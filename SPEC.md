@@ -53,10 +53,9 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 - `rate_limits.seven_day.used_percentage`
 - `rate_limits.seven_day.resets_at`
 - `workspace.current_dir` (falls back to `.cwd`)
+- `effort.level` (omitted by Claude Code for models without effort support)
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
-
-One non-standard read: `effortLevel` is pulled from `~/.claude/settings.json` (user-defined, not part of the statusline schema).
 
 ## Output layout (8 lines)
 
@@ -116,15 +115,29 @@ The bar is wrapped in DIM so the gradient reads softly against labels; the perce
 
 ### Effort level (mirrors Claude Code's `/effort` picker tokens)
 
-| effort   | statusline color | picker token           |
-|----------|------------------|------------------------|
-| `low`    | `$YELLOW`        | `warning`              |
-| `medium` | `$GREEN`         | `success`              |
-| `high`   | `$BLUE`          | `permission`           |
-| `xhigh`  | `$MAGENTA`       | `autoAccept-shimmer`   |
-| `max`    | `$BRIGHT_WHITE`  | `rainbow-animated`     |
+Source: the stdin `effort.level` field. Claude Code emits one of the five tokens
+below (it normalizes the session-scoped `ultracode` selection to `xhigh` upstream,
+so `ultracode` never reaches the statusline as a literal). The field is **omitted**
+entirely for models without effort support (e.g. Haiku 4.5, Sonnet 4.5, Opus 4.0/4.1).
 
-`max` uses bright white because the statusline is stateless one-shot output and cannot animate a rainbow. All other mappings use the ANSI equivalent of the `/effort` picker's semantic color token (discovered by inspecting Claude Code's binary).
+| effort       | displayed   | statusline color | picker token         |
+|--------------|-------------|------------------|----------------------|
+| `low`        | `low`       | `$YELLOW`        | `warning`            |
+| `medium`     | `medium`    | `$GREEN`         | `success`            |
+| `high`       | `high`      | `$BLUE`          | `permission`         |
+| `xhigh`      | `xhigh`     | `$MAGENTA`       | `autoAccept-shimmer` |
+| `max`        | `max`       | `$BRIGHT_WHITE`  | `rainbow-animated`   |
+| *(omitted)*  | `—`         | `$DIM`           | model has no effort  |
+| *(any other)*| `unknown`   | `$BRIGHT_RED`    | schema drift         |
+
+`max` uses bright white because the statusline is stateless one-shot output and cannot
+animate a rainbow. The five known mappings use the ANSI equivalent of the `/effort`
+picker's semantic color token (discovered by inspecting Claude Code's binary).
+
+**No silent fallback.** A missing `effort.level` is a legitimate state (the model has
+no effort concept) and renders as a dim `—`. A *present but unrecognized* value is
+treated as genuine schema drift and rendered as a loud bright-red `unknown`, so a future
+Claude Code token rename or addition is immediately visible rather than masked.
 
 ## Cross-platform date handling
 

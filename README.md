@@ -34,7 +34,7 @@ Model family and effort level are color-coded independently — Opus is purple, 
 - **Smooth truecolor context bar** — dark gray → white → yellow → red gradient. White at 60%, pure red at 70%+. Reads cooler during headroom, gets loud at the danger zone.
 - **Separate 5h / 7d rate-limit bars** with a truecolor gradient (gray → white → green → yellow → red, saturating at 90%) and `↺` reset times.
 - **Git line** up top: repo name, branch, `+N -N` diff counts.
-- **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white).
+- **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white). Read live from the session input — a model with no effort support shows a dim `—`, and any value the picker stops emitting shows a bright-red `unknown` so the display never silently lies.
 - **Compact counter** — a companion `PreCompact` hook tracks how many times `/compact` has fired this session; the renderer surfaces it as `compact Nx` on the context line.
 - **Raw session id on the last line** — copy-pasteable into `claude --resume <id>` (Claude Code doesn't do prefix matching, so the full UUID is shown).
 - **Optional backup drift indicator** — if a `~/.claude/system/backup/.drift-status` flag file exists (written by an external backup script of your own), its text is appended to the last line as `⚠ <text>`. Absent that file, nothing shows — so this is inert unless you opt in.

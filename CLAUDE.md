@@ -18,6 +18,7 @@ Two scripts:
 ## Conventions to preserve
 
 - **Every `jq` lookup in `statusline.sh` must have a `//` default.** Claude Code may add or rename schema fields; the script must degrade gracefully.
+- **Effort comes from stdin `.effort.level`, with no silent fallback.** It is one of `low/medium/high/xhigh/max` (Claude Code normalizes `ultracode` → `xhigh` upstream, so it never arrives literally). A *missing* field (models without effort support, e.g. Haiku 4.5) renders as a dim `—`; a *present-but-unrecognized* value renders as a loud bright-red `unknown` so schema drift stays visible. Don't reintroduce a quiet default. See `SPEC.md` → Effort level.
 - **Cross-platform `date`**: use the BSD-or-GNU fallback `date -r "$EPOCH" "+%H:%M" 2>/dev/null || date -d "@$EPOCH" "+%H:%M" 2>/dev/null`. Keep it when adding new time displays.
 - **Session id sanitization** (`tr -dc 'a-zA-Z0-9' | cut -c1-24`) is the IPC key shared by `statusline.sh` and `hooks/compact-monitor.sh`. Change one, change both.
 - **The context bar must not be wrapped in DIM** — it uses 24-bit truecolor and DIM collapses the gradient. (The 5h / 7d limit bars are also truecolor but are intentionally wrapped in DIM for a softer look — that's a deliberate aesthetic choice, not a precedent to copy.)

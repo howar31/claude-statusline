@@ -3,7 +3,7 @@
 input=$(cat)
 
 MODEL=$(echo "$input" | jq -r '.model.display_name // "Claude"')
-EFFORT_LEVEL=$(jq -r '.effortLevel // "default"' ~/.claude/settings.json 2>/dev/null || echo "default")
+EFFORT_LEVEL=$(echo "$input" | jq -r '.effort.level // "__ABSENT__"')
 SESSION_ID_RAW=$(echo "$input" | jq -r '.session_id // ""')
 SESSION_ID=$(echo "$SESSION_ID_RAW" | tr -dc 'a-zA-Z0-9' | cut -c1-24)
 EXCEEDS_200K=$(echo "$input" | jq -r '.exceeds_200k_tokens // false')
@@ -89,6 +89,7 @@ GREEN="\033[32m"
 YELLOW="\033[33m"
 BLUE="\033[34m"
 RED="\033[31m"
+BRIGHT_RED="\033[1;91m"
 PURPLE="\033[38;5;135m"
 BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
@@ -173,14 +174,21 @@ esac
 
 # Effort level color (aligned with Claude Code's /effort picker:
 # low=warning(yellow), medium=success(green), high=permission(blue),
-# xhigh=autoAccept(magenta), max=rainbow→bright white fallback)
+# xhigh=autoAccept(magenta), max=rainbow→bright white fallback).
+# Source is the stdin `.effort.level` field. Claude Code emits one of
+# low/medium/high/xhigh/max (it normalizes `ultracode` to `xhigh` upstream) and
+# OMITS the field entirely for models without effort support (e.g. Haiku 4.5) —
+# that absence is shown as a dim "—" placeholder. A value that is present but
+# unrecognized is genuine schema drift and is surfaced loudly as bright-red
+# "unknown" — never silently defaulted — so the drift stays visible.
 case "$EFFORT_LEVEL" in
-  low)    EFFORT_COLOR="$YELLOW" ;;
-  medium) EFFORT_COLOR="$GREEN" ;;
-  high)   EFFORT_COLOR="$BLUE" ;;
-  xhigh)  EFFORT_COLOR="$MAGENTA" ;;
-  max)    EFFORT_COLOR="$BRIGHT_WHITE" ;;
-  *)      EFFORT_COLOR="$DIM" ;;
+  low)        EFFORT_COLOR="$YELLOW" ;;
+  medium)     EFFORT_COLOR="$GREEN" ;;
+  high)       EFFORT_COLOR="$BLUE" ;;
+  xhigh)      EFFORT_COLOR="$MAGENTA" ;;
+  max)        EFFORT_COLOR="$BRIGHT_WHITE" ;;
+  __ABSENT__) EFFORT_COLOR="$DIM"; EFFORT_LEVEL="—" ;;
+  *)          EFFORT_COLOR="$BRIGHT_RED"; EFFORT_LEVEL="unknown" ;;
 esac
 
 # Cost
