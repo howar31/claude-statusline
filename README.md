@@ -25,7 +25,7 @@ The 5h / 7d limit bars use a similar gradient but with later waypoints (white at
 
 ![Limit bar color gradient from 5% to 100%](docs/limit-bar-gradient.png)
 
-Model family and effort level are color-coded independently — Opus is purple, Haiku is green, anything else (Sonnet etc.) falls back to cyan. Effort mirrors Claude Code's `/effort` picker palette: yellow / green / blue / magenta / bright-white for low / medium / high / xhigh / max:
+Model family and effort level are color-coded independently — Opus is purple, Haiku is green, anything else (Sonnet etc.) falls back to cyan. Effort mirrors Claude Code's `/effort` picker palette: yellow / green / blue / magenta / bright-white for low / medium / high / xhigh / max — plus a dim `—` when the model has no effort support and a bright-red `unknown` for any value the picker stops emitting:
 
 ![Model family and effort level color swatches](docs/model-effort-colors.png)
 
