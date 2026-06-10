@@ -16,6 +16,10 @@ The main renderer. Invoked by Claude Code with a JSON payload on stdin; writes e
 
 A pass-through `PreCompact` hook. Reads stdin, increments the `count` field in `/tmp/claude-compacts-<sanitized_session_id>.json`, echoes stdin back unchanged so additional `PreCompact` hooks can chain after it. Wired via `hooks.PreCompact[]` in `~/.claude/settings.json`.
 
+### `docs/swatches.sh`
+
+A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants and gradient formulas rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
+
 ## Out-of-band IPC
 
 The renderer reads two state files written by external processes; neither is part of the statusline JSON payload.
