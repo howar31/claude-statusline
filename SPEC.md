@@ -40,33 +40,43 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 
 - `model.display_name`
 - `session_id`
+- `session_name` (custom session name; prepended to line 8 when set)
 - `exceeds_200k_tokens`
 - `cost.total_cost_usd`
 - `cost.total_duration_ms`
+- `cost.total_api_duration_ms` (true API wait time; shown as `API` on the Stats line when > 0)
 - `context_window.used_percentage`
+- `context_window.context_window_size` (model max window; shown as `1M` / `200k` on the Context line when > 0)
 - `context_window.total_input_tokens`
 - `context_window.total_output_tokens`
 - `context_window.current_usage.cache_read_input_tokens`
 - `context_window.current_usage.cache_creation_input_tokens`
+- `thinking.enabled` (extended-thinking marker `✦` on the Model line when true)
 - `rate_limits.five_hour.used_percentage`
 - `rate_limits.five_hour.resets_at`
 - `rate_limits.seven_day.used_percentage`
 - `rate_limits.seven_day.resets_at`
 - `workspace.current_dir` (falls back to `.cwd`)
 - `effort.level` (omitted by Claude Code for models without effort support)
+- `pr.number`, `pr.review_state` (PR indicator on line 1 when `.pr` is present; glyph/color by review_state)
+- `worktree.name`, `worktree.branch` (worktree indicator on line 1 during `--worktree` sessions)
+
+**Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The `Tokens` line's `In` / `Out` are labeled with that meaning.
+
+**Gated fields**: the fields annotated above with "when set" / "when present" / "when > 0" (`session_name`, `cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
 ## Output layout (8 lines)
 
-1. **Git info** (unlabeled, flush-left): `<repo_name> ⬠ <branch> · +N -N`. Omitted entirely if CWD is unknown.
-2. **`Model  `** — `<model>` + effort level
-3. **`Context`** — 30-char progress bar, percentage, optional `compact Nx`
-4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size (not cumulative `In + Out` session totals), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
-5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`
+1. **Git info** (unlabeled, flush-left): `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. Omitted entirely if CWD is unknown.
+2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true.
+3. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
+4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
+5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
 7. **(unlabeled, 8-space indent)** — 20-char 7d bar, `7D <pct>%`, reset time
-8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
+8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`, prefixed with `<session_name> · ` when a custom session name is set. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
 
 ### Alignment rules
 
@@ -83,7 +93,7 @@ If you change a width, update the matching `pct * N / 100` calculation.
 
 ## Color specification
 
-ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `BRIGHT_RED`, `PURPLE`, `BRIGHT_WHITE`, `DIM`.
+ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `BRIGHT_RED`, `PURPLE`, `GOLD`, `BRIGHT_WHITE`, `DIM`.
 
 ### Context bar — smooth truecolor gradient (`\033[38;2;R;G;Bm`)
 
@@ -109,9 +119,10 @@ The bar is wrapped in DIM so the gradient reads softly against labels; the perce
 
 ### Model family
 
+- `*Fable*` / `*Mythos*` → `$GOLD` (256-color 214) — the Mythos-class tier above Opus
 - `*Opus*` → `$PURPLE` (256-color 135)
 - `*Haiku*` → `$GREEN`
-- else → `$CYAN`
+- else → `$CYAN` (includes Sonnet)
 
 ### Effort level (mirrors Claude Code's `/effort` picker tokens)
 

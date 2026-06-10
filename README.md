@@ -25,7 +25,7 @@ The 5h / 7d limit bars use a similar gradient but with later waypoints (white at
 
 ![Limit bar color gradient from 5% to 100%](docs/limit-bar-gradient.png)
 
-Model family and effort level are color-coded independently — Opus is purple, Haiku is green, anything else (Sonnet etc.) falls back to cyan. Effort mirrors Claude Code's `/effort` picker palette: yellow / green / blue / magenta / bright-white for low / medium / high / xhigh / max — plus a dim `—` when the model has no effort support and a bright-red `unknown` for any value the picker stops emitting:
+Model family and effort level are color-coded independently — Fable (the Mythos-class tier above Opus) is gold, Opus is purple, Haiku is green, anything else (Sonnet etc.) falls back to cyan. Effort mirrors Claude Code's `/effort` picker palette: yellow / green / blue / magenta / bright-white for low / medium / high / xhigh / max — plus a dim `—` when the model has no effort support and a bright-red `unknown` for any value the picker stops emitting:
 
 ![Model family and effort level color swatches](docs/model-effort-colors.png)
 
@@ -34,6 +34,12 @@ Model family and effort level are color-coded independently — Opus is purple, 
 - **Smooth truecolor context bar** — dark gray → white → yellow → red gradient. White at 60%, pure red at 70%+. Reads cooler during headroom, gets loud at the danger zone.
 - **Separate 5h / 7d rate-limit bars** with a truecolor gradient (gray → white → green → yellow → red, saturating at 90%) and `↺` reset times.
 - **Git line** up top: repo name, branch, `+N -N` diff counts.
+- **PR status** on the git line when a pull request exists for the branch — `✓ / ✗ / ● / ○ PR #N`, colored by review state (approved / changes-requested / pending / draft).
+- **Worktree indicator** during `--worktree` sessions — `⎇ <name>` (with `@<branch>` when the branch differs from the worktree name).
+- **Extended-thinking marker** — a `✦` on the model line when the session has extended thinking enabled.
+- **Context window size** (`1M` / `200k`) on the context line, so you can tell the model's window at a glance.
+- **API wait time** on the stats line — real time spent waiting on the API, separate from total elapsed duration.
+- **Custom session name** on the last line when one is set (`--name` / `/rename`).
 - **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white). Read live from the session input — a model with no effort support shows a dim `—`, and any value the picker stops emitting shows a bright-red `unknown` so the display never silently lies.
 - **Compact counter** — a companion `PreCompact` hook tracks how many times `/compact` has fired this session; the renderer surfaces it as `compact Nx` on the context line.
 - **Raw session id on the last line** — copy-pasteable into `claude --resume <id>` (Claude Code doesn't do prefix matching, so the full UUID is shown).

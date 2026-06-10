@@ -11,15 +11,20 @@ COST=$(echo "$input" | jq -r '.cost.total_cost_usd // 0')
 USED=$(echo "$input" | jq -r '.context_window.used_percentage // 0' | cut -d. -f1)
 DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 
-# Session token usage
+# New-schema fields (all gated; absent fields fall back to empty/zero)
+CTX_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
+THINKING=$(echo "$input" | jq -r '.thinking.enabled // false')
+API_MS=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
+SESSION_NAME=$(echo "$input" | jq -r '.session_name // ""')
+PR_NUMBER=$(echo "$input" | jq -r '.pr.number // ""')
+PR_REVIEW=$(echo "$input" | jq -r '.pr.review_state // ""')
+WORKTREE_NAME=$(echo "$input" | jq -r '.worktree.name // ""')
+WORKTREE_BRANCH=$(echo "$input" | jq -r '.worktree.branch // ""')
+
+# Session token usage (In/Out reflect the current context window, not session
+# cumulative totals, since Claude Code v2.1.132)
 TOK_IN=$(echo "$input" | jq -r '.context_window.total_input_tokens // 0')
 TOK_OUT=$(echo "$input" | jq -r '.context_window.total_output_tokens // 0')
-TOK_TOTAL=$(( TOK_IN + TOK_OUT ))
-if [ "$TOK_TOTAL" -ge 1000 ]; then
-  TOK_FMT=$(awk "BEGIN {printf \"%.1fk\", $TOK_TOTAL/1000}")
-else
-  TOK_FMT="${TOK_TOTAL}"
-fi
 
 # Current session (5-hour) rate limit
 SESSION_PCT=$(echo "$input" | jq -r '.rate_limits.five_hour.used_percentage // 0' | cut -d. -f1)
@@ -70,6 +75,18 @@ fmt_tok() {
   fi
 }
 
+# Format window size: 1000000 -> 1M, 200000 -> 200k, else raw
+fmt_window() {
+  local n=$1
+  if [ "$n" -ge 1000000 ]; then
+    awk "BEGIN {printf \"%gM\", $n/1000000}"
+  elif [ "$n" -ge 1000 ]; then
+    awk "BEGIN {printf \"%gk\", $n/1000}"
+  else
+    echo "$n"
+  fi
+}
+
 TOK_IN_FMT=$(fmt_tok "$TOK_IN")
 TOK_OUT_FMT=$(fmt_tok "$TOK_OUT")
 
@@ -91,6 +108,7 @@ BLUE="\033[34m"
 RED="\033[31m"
 BRIGHT_RED="\033[1;91m"
 PURPLE="\033[38;5;135m"
+GOLD="\033[38;5;214m"
 BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
 
@@ -167,9 +185,10 @@ DURATION="${MINS}m ${SECS}s"
 
 # Model color by family
 case "$MODEL" in
-  *Opus*)  MODEL_COLOR="$PURPLE" ;;
-  *Haiku*) MODEL_COLOR="$GREEN" ;;
-  *)       MODEL_COLOR="$CYAN" ;;
+  *Fable*|*Mythos*) MODEL_COLOR="$GOLD" ;;
+  *Opus*)           MODEL_COLOR="$PURPLE" ;;
+  *Haiku*)          MODEL_COLOR="$GREEN" ;;
+  *)                MODEL_COLOR="$CYAN" ;;
 esac
 
 # Effort level color (aligned with Claude Code's /effort picker:
@@ -226,12 +245,36 @@ GIT_LINE=""
 [ -n "$SHORT_DIR" ] && GIT_LINE="${CYAN}${SHORT_DIR}${RESET}"
 [ -n "$GIT_BRANCH" ] && GIT_LINE="${GIT_LINE} ${DIM}⬠${RESET} ${GREEN}${GIT_BRANCH}${RESET}"
 [ -n "$GIT_DIFF_FMT" ] && GIT_LINE="${GIT_LINE} ${DIM}·${RESET} ${GIT_DIFF_FMT}"
+
+# Pull request status (gated on .pr presence), colored by review_state
+if [ -n "$PR_NUMBER" ]; then
+  case "$PR_REVIEW" in
+    approved)          PR_FMT="${GREEN}✓ PR #${PR_NUMBER}${RESET}" ;;
+    changes_requested) PR_FMT="${RED}✗ PR #${PR_NUMBER}${RESET}" ;;
+    pending)           PR_FMT="${YELLOW}● PR #${PR_NUMBER}${RESET}" ;;
+    draft)             PR_FMT="${DIM}○ PR #${PR_NUMBER}${RESET}" ;;
+    *)                 PR_FMT="${CYAN}PR #${PR_NUMBER}${RESET}" ;;
+  esac
+  GIT_LINE="${GIT_LINE} ${DIM}·${RESET} ${PR_FMT}"
+fi
+
+# Worktree indicator (gated on --worktree session)
+if [ -n "$WORKTREE_NAME" ]; then
+  WORKTREE_FMT="${MAGENTA}⎇ ${WORKTREE_NAME}${RESET}"
+  # Append @branch only when it differs from the worktree name (avoid "x@x")
+  [ -n "$WORKTREE_BRANCH" ] && [ "$WORKTREE_BRANCH" != "$WORKTREE_NAME" ] && WORKTREE_FMT="${WORKTREE_FMT}${DIM}@${WORKTREE_BRANCH}${RESET}"
+  GIT_LINE="${GIT_LINE} ${DIM}·${RESET} ${WORKTREE_FMT}"
+fi
+
 [ -n "$GIT_LINE" ] && echo -e "$GIT_LINE"
 
 MODEL_LINE="${DIM}Model  ${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
+# Extended-thinking indicator (gated on thinking.enabled)
+[ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
 echo -e "$MODEL_LINE"
 
 CONTEXT_LINE="${DIM}Context${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
+[ "$CTX_SIZE" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}$(fmt_window "$CTX_SIZE")${RESET}"
 [ "$COMPACT_COUNT" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}compact ${COMPACT_COUNT}x${RESET}"
 echo -e "$CONTEXT_LINE"
 
@@ -239,7 +282,14 @@ TOKENS_LINE="${DIM}Tokens ${RESET} "
 [ "$EXCEEDS_200K" = "true" ] && TOKENS_LINE="${TOKENS_LINE}${RED}⚠ 200k+${RESET} ${DIM}·${RESET} "
 TOKENS_LINE="${TOKENS_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
 echo -e "$TOKENS_LINE"
-echo -e "${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
+STATS_LINE="${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
+# True API wait time (gated on cost.total_api_duration_ms)
+if [ "$API_MS" -gt 0 ]; then
+  API_MINS=$(( API_MS / 60000 ))
+  API_SECS=$(( (API_MS % 60000) / 1000 ))
+  STATS_LINE="${STATS_LINE} ${DIM}·${RESET} ${DIM}API${RESET} ${API_MINS}m ${API_SECS}s"
+fi
+echo -e "$STATS_LINE"
 echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
 echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
 
@@ -248,6 +298,8 @@ if [ -n "$SESSION_ID_RAW" ]; then
 else
   LAST_LINE="${DIM}${NOW_DATETIME}${RESET}"
 fi
+# Prepend custom session name when set (session_name)
+[ -n "$SESSION_NAME" ] && LAST_LINE="${DIM}${SESSION_NAME}${RESET} ${DIM}·${RESET} ${LAST_LINE}"
 
 # Append ~/.claude backup drift indicator on the same line so line count stays
 # constant (no UI jump). Flag file is written by claude-backup.sh git.
