@@ -39,7 +39,6 @@ Model family and effort level are color-coded independently — Fable (the Mytho
 - **Extended-thinking marker** — a `✦` on the model line when the session has extended thinking enabled.
 - **Context window size** (`1M` / `200k`) on the context line, so you can tell the model's window at a glance.
 - **API wait time** on the stats line — real time spent waiting on the API, separate from total elapsed duration.
-- **Custom session name** on the last line when one is set (`--name` / `/rename`).
 - **Effort-level color matches Claude Code's `/effort` picker** (low=yellow, medium=green, high=blue, xhigh=magenta, max=bright white). Read live from the session input — a model with no effort support shows a dim `—`, and any value the picker stops emitting shows a bright-red `unknown` so the display never silently lies.
 - **Compact counter** — a companion `PreCompact` hook tracks how many times `/compact` has fired this session; the renderer surfaces it as `compact Nx` on the context line.
 - **Raw session id on the last line** — copy-pasteable into `claude --resume <id>` (Claude Code doesn't do prefix matching, so the full UUID is shown).

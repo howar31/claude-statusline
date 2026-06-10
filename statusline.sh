@@ -15,7 +15,6 @@ DURATION_MS=$(echo "$input" | jq -r '.cost.total_duration_ms // 0')
 CTX_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size // 0')
 THINKING=$(echo "$input" | jq -r '.thinking.enabled // false')
 API_MS=$(echo "$input" | jq -r '.cost.total_api_duration_ms // 0')
-SESSION_NAME=$(echo "$input" | jq -r '.session_name // ""')
 PR_NUMBER=$(echo "$input" | jq -r '.pr.number // ""')
 PR_REVIEW=$(echo "$input" | jq -r '.pr.review_state // ""')
 WORKTREE_NAME=$(echo "$input" | jq -r '.worktree.name // ""')
@@ -298,8 +297,6 @@ if [ -n "$SESSION_ID_RAW" ]; then
 else
   LAST_LINE="${DIM}${NOW_DATETIME}${RESET}"
 fi
-# Prepend custom session name when set (session_name)
-[ -n "$SESSION_NAME" ] && LAST_LINE="${DIM}${SESSION_NAME}${RESET} ${DIM}·${RESET} ${LAST_LINE}"
 
 # Append ~/.claude backup drift indicator on the same line so line count stays
 # constant (no UI jump). Flag file is written by claude-backup.sh git.

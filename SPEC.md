@@ -40,7 +40,6 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 
 - `model.display_name`
 - `session_id`
-- `session_name` (custom session name; prepended to line 8 when set)
 - `exceeds_200k_tokens`
 - `cost.total_cost_usd`
 - `cost.total_duration_ms`
@@ -63,7 +62,7 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 
 **Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The `Tokens` line's `In` / `Out` are labeled with that meaning.
 
-**Gated fields**: the fields annotated above with "when set" / "when present" / "when > 0" (`session_name`, `cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
+**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
@@ -76,7 +75,7 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
 7. **(unlabeled, 8-space indent)** — 20-char 7d bar, `7D <pct>%`, reset time
-8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`, prefixed with `<session_name> · ` when a custom session name is set. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
+8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
 
 ### Alignment rules
 
