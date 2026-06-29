@@ -34,6 +34,10 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 
 **Invariant**: if you change the sanitization rule in one file, change it in the other, or the renderer will miss the count.
 
+### Logged-in account
+
+The renderer reads `~/.claude.json` → `.oauthAccount.displayName` (Claude Code owns this file; the statusline is a read-only consumer). The login account is **not** part of the statusline JSON payload, so it is read out-of-band here, same as the compact counter and drift flag. The lookup has a `// empty` default and is gated: rendered as the line-1 account label only when non-empty, so it degrades silently if the field, file, or login is absent. `displayName` (the friendly account name, e.g. `Ada Lovelace`) is used rather than `emailAddress`/`organizationName` to keep the full email and org name out of statusline screenshots (this repo publishes `docs/*.png`).
+
 ### Backup drift flag
 
 `claude-backup.sh git` (from the separate `claude-backup` repo, symlinked at `~/.claude/system/backup`) writes, the renderer reads: `~/.claude/system/backup/.drift-status`. If the file exists and is non-empty, its contents render as the line-8 drift indicator (`⚠ <text>`, yellow); if absent or empty, nothing is shown. This path is owned by the backup project, not this repo — the renderer is a read-only consumer that degrades silently when the file is missing.
@@ -72,20 +76,20 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 
 ## Output layout (8 lines)
 
-1. **Git info** (unlabeled, flush-left): `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. Omitted entirely if CWD is unknown.
+1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the logged-in account is present, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); when absent, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account is present.
 2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true.
 3. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
 4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
-7. **(unlabeled, 8-space indent)** — 20-char 7d bar, `7D <pct>%`, reset time
+7. **(unlabeled, blank-label indent)** — 20-char 7d bar, `7D <pct>%`, reset time (indented by an empty label of the shared column width so the bar aligns under the 5h bar)
 8. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on line 8 so the line count stays at 8 and the UI never jumps.
 
 ### Alignment rules
 
-- Lines 2–6 use a dim label column of width 7 (`Model  `, `Context`, `Tokens `, `Stats  `, `Limits `) followed by one separator space.
-- Line 7's 8-space indent (as DIM spaces) mirrors the `Limits ` label structure so the 7d bar starts at the same column as the 5h bar.
-- Lines 1 and 8 are flush-left so they can be scanned or copied without leading indent — line 8's raw session id is designed for `claude --resume <id>` (Claude Code does not support prefix matching, so the full UUID is shown).
+- Lines 2–6 share a dim label column (`Model`, `Context`, `Tokens`, `Stats`, `Limits`), each left-padded to a common width and followed by one separator space. The width is **7 by default**, but widens to the account `displayName` length when the line-1 account label is present, so all labels — including line 1's account — line up in one column. All labels are produced by a single `pad_label` helper; at width 7 it reproduces the original hardcoded labels exactly, so absent-account output is byte-identical to the pre-account layout.
+- Line 7's indent (DIM spaces of the same label width + one separator space) mirrors the `Limits` label structure so the 7d bar starts at the same column as the 5h bar.
+- Line 8 is flush-left so it can be scanned or copied without leading indent — its raw session id is designed for `claude --resume <id>` (Claude Code does not support prefix matching, so the full UUID is shown). Line 1 is flush-left **only when no account is present**; with an account it joins the label column (the account is its label), trading flush-left for column alignment by design.
 
 ### Bar widths
 
@@ -93,6 +97,18 @@ sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 - 5h / 7d bars: **20 chars** each
 
 If you change a width, update the matching `pct * N / 100` calculation.
+
+### Width budget
+
+Target: **every rendered line stays within ~60 visible columns** (measured after stripping ANSI escape codes, and excluding the line-8 ` · ⚠ <drift_text>` suffix that `claude-backup` may append). This keeps the statusline readable in narrow terminals and stable across themes.
+
+The binding lines are data-driven:
+
+- **Line 8** is effectively fixed at ~58 (36-char session UUID + ` · ` + 19-char timestamp) and is independent of the label column.
+- **Lines 3 / 6 / 7** are `LABEL_W + bar(30 or 20) + value/reset text`, so they grow with the shared label-column width `LABEL_W` (`max(7, len(displayName))`). A `displayName` longer than ~14 chars can push the 5h/7d lines past 60.
+- **Line 1** grows with `LABEL_W` plus the repo / branch / `+N -N` / PR / worktree extras.
+
+**Rule**: if a design change (new field, wider bar, longer label) would push any line past ~60 columns for realistic data, **confirm the design with the user before shipping** instead of silently overflowing. A capping/truncation strategy for an over-long account label is a candidate solution to raise at that point. This mirrors `CLAUDE.md` → Conventions to preserve → "Line width budget".
 
 ## Color specification
 

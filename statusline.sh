@@ -240,6 +240,20 @@ NOW_DATETIME=$(date "+%Y.%m.%d %H:%M:%S")
 WHOAMI=$(whoami)
 HOST_SHORT=$(hostname -s)
 
+# Logged-in account display name. Out-of-band: ~/.claude.json is NOT part of the
+# statusline JSON payload, so this is read directly (like the compact counter and
+# drift flag). Gated — rendered only when present.
+ACCOUNT_NAME=$(jq -r '.oauthAccount.displayName // empty' "$HOME/.claude.json" 2>/dev/null)
+
+# Shared dim label column. Width is 7 by default (Model/Context/Tokens/Stats/
+# Limits), widened to the account name length when present so line 1's account
+# label and the labels below it line up in a single column. pad_label at width 7
+# reproduces the original hardcoded labels exactly, so absent-account output is
+# unchanged.
+LABEL_W=7
+[ "${#ACCOUNT_NAME}" -gt "$LABEL_W" ] && LABEL_W=${#ACCOUNT_NAME}
+pad_label() { printf "%-${LABEL_W}s" "$1"; }
+
 GIT_LINE=""
 [ -n "$SHORT_DIR" ] && GIT_LINE="${CYAN}${SHORT_DIR}${RESET}"
 [ -n "$GIT_BRANCH" ] && GIT_LINE="${GIT_LINE} ${DIM}⬠${RESET} ${GREEN}${GIT_BRANCH}${RESET}"
@@ -265,23 +279,31 @@ if [ -n "$WORKTREE_NAME" ]; then
   GIT_LINE="${GIT_LINE} ${DIM}·${RESET} ${WORKTREE_FMT}"
 fi
 
-[ -n "$GIT_LINE" ] && echo -e "$GIT_LINE"
+# Prepend the logged-in account as line 1's dim label (gated), aligned into the
+# same label column as Model/Context/... below. When the account is absent, line 1
+# stays flush-left as before.
+if [ -n "$ACCOUNT_NAME" ]; then
+  LINE1="${DIM}$(pad_label "$ACCOUNT_NAME")${RESET} ${GIT_LINE}"
+else
+  LINE1="$GIT_LINE"
+fi
+[ -n "$LINE1" ] && echo -e "$LINE1"
 
-MODEL_LINE="${DIM}Model  ${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
+MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
 # Extended-thinking indicator (gated on thinking.enabled)
 [ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
 echo -e "$MODEL_LINE"
 
-CONTEXT_LINE="${DIM}Context${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
+CONTEXT_LINE="${DIM}$(pad_label Context)${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
 [ "$CTX_SIZE" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}$(fmt_window "$CTX_SIZE")${RESET}"
 [ "$COMPACT_COUNT" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}compact ${COMPACT_COUNT}x${RESET}"
 echo -e "$CONTEXT_LINE"
 
-TOKENS_LINE="${DIM}Tokens ${RESET} "
+TOKENS_LINE="${DIM}$(pad_label Tokens)${RESET} "
 [ "$EXCEEDS_200K" = "true" ] && TOKENS_LINE="${TOKENS_LINE}${RED}⚠ 200k+${RESET} ${DIM}·${RESET} "
 TOKENS_LINE="${TOKENS_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
 echo -e "$TOKENS_LINE"
-STATS_LINE="${DIM}Stats  ${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
+STATS_LINE="${DIM}$(pad_label Stats)${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
 # True API wait time (gated on cost.total_api_duration_ms)
 if [ "$API_MS" -gt 0 ]; then
   API_MINS=$(( API_MS / 60000 ))
@@ -289,8 +311,8 @@ if [ "$API_MS" -gt 0 ]; then
   STATS_LINE="${STATS_LINE} ${DIM}·${RESET} ${DIM}API${RESET} ${API_MINS}m ${API_SECS}s"
 fi
 echo -e "$STATS_LINE"
-echo -e "${DIM}Limits ${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
-echo -e "${DIM}       ${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+echo -e "${DIM}$(pad_label Limits)${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
+echo -e "${DIM}$(pad_label '')${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
 
 if [ -n "$SESSION_ID_RAW" ]; then
   LAST_LINE="${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
