@@ -20,6 +20,12 @@ A pass-through `PreCompact` hook. Reads stdin, increments the `count` field in `
 
 A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants and gradient formulas rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
 
+### `docs/preview.sh`
+
+A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the account label and backup-drift flag (a fake `HOME`), and the compact counter (a seeded `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace` and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
+
+`./docs/preview.sh --check` regenerates into a temp file and diffs it against `README.md` without mutating anything — exit 0 if current, exit 1 plus the diff if stale. The output is byte-reproducible across BSD (macOS) and GNU (Linux), verified by running `--check` in an Ubuntu container against a macOS-generated README. CI enforces freshness via `.github/workflows/preview-check.yml`, which runs `bash docs/preview.sh --check` on `ubuntu-latest` whenever `statusline.sh`, `docs/preview.sh`, or `README.md` changes.
+
 ## Out-of-band IPC
 
 The renderer reads two state files written by external processes; neither is part of the statusline JSON payload.
@@ -179,6 +185,8 @@ date -r "$EPOCH" "+%H:%M" 2>/dev/null || date -d "@$EPOCH" "+%H:%M" 2>/dev/null
 ```
 
 Keep this fallback whenever adding new time displays.
+
+Bars must be built by **concatenating the glyph N times** (the `repeat_glyph` helper in `statusline.sh`; an inline loop in `docs/swatches.sh`), never `tr ' ' '█'`. `tr` maps *bytes*, so GNU coreutils turns each 3-byte bar glyph (`█` = `E2 96 88`) into a lone `E2` (invalid UTF-8); only BSD `tr` rendered the multibyte glyph. The bars therefore looked correct on macOS but were corrupted on Linux until switched to concatenation. Mirror this for any new bar.
 
 ## Testing
 

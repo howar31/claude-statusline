@@ -87,6 +87,16 @@ fmt_window() {
   fi
 }
 
+# Repeat a (possibly multibyte) glyph `n` times. Portable: avoids
+# `tr ' ' '<glyph>'`, which maps by byte and corrupts the multibyte bar glyphs
+# on GNU coreutils — only BSD tr happened to render them. Bars are <=30 chars,
+# so the loop is cheap.
+repeat_glyph() {
+  local n=$1 g=$2 out=''
+  while [ "$n" -gt 0 ]; do out="$out$g"; n=$(( n - 1 )); done
+  printf '%s' "$out"
+}
+
 TOK_IN_FMT=$(fmt_tok "$TOK_IN")
 TOK_OUT_FMT=$(fmt_tok "$TOK_OUT")
 
@@ -168,15 +178,15 @@ CONTEXT_BAR_COLOR="\033[38;2;${CONTEXT_R};${CONTEXT_G};${CONTEXT_B}m"
 # Context window progress bar
 FILLED=$(( USED * 30 / 100))
 EMPTY=$(( 30 - FILLED ))
-CONTEXT_BAR=$(printf "%${FILLED}s" | tr ' ' '█')$(printf "%${EMPTY}s" | tr ' ' '░')
+CONTEXT_BAR="$(repeat_glyph "$FILLED" '█')$(repeat_glyph "$EMPTY" '░')"
 
 # 5h / 7d rate limit progress bars (same width as context bar)
 SESSION_FILLED=$(( SESSION_PCT * 20 / 100 ))
 SESSION_EMPTY=$(( 20 - SESSION_FILLED ))
-SESSION_BAR=$(printf "%${SESSION_FILLED}s" | tr ' ' '█')$(printf "%${SESSION_EMPTY}s" | tr ' ' '░')
+SESSION_BAR="$(repeat_glyph "$SESSION_FILLED" '█')$(repeat_glyph "$SESSION_EMPTY" '░')"
 WEEKLY_FILLED=$(( WEEKLY_PCT * 20 / 100 ))
 WEEKLY_EMPTY=$(( 20 - WEEKLY_FILLED ))
-WEEKLY_BAR=$(printf "%${WEEKLY_FILLED}s" | tr ' ' '█')$(printf "%${WEEKLY_EMPTY}s" | tr ' ' '░')
+WEEKLY_BAR="$(repeat_glyph "$WEEKLY_FILLED" '█')$(repeat_glyph "$WEEKLY_EMPTY" '░')"
 
 # Duration
 MINS=$(( DURATION_MS / 60000 ))
@@ -238,8 +248,6 @@ if [ -n "$SESSION_ID" ]; then
 fi
 
 NOW_DATETIME=$(date "+%Y.%m.%d %H:%M:%S")
-WHOAMI=$(whoami)
-HOST_SHORT=$(hostname -s)
 
 # Logged-in account display name. Out-of-band: ~/.claude.json is NOT part of the
 # statusline JSON payload, so this is read directly (like the compact counter and

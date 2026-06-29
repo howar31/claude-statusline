@@ -1,0 +1,29 @@
+name: preview-check
+
+# Fail if README.md's "What it looks like" previews no longer match what
+# statusline.sh actually renders. docs/preview.sh regenerates the two blocks
+# from the real renderer in a sandbox; --check diffs without mutating the repo.
+# The generator is byte-reproducible across BSD (macOS) and GNU (Linux), so a
+# preview generated on either platform passes here.
+
+on:
+  push:
+    paths:
+      - statusline.sh
+      - docs/preview.sh
+      - README.md
+      - .github/workflows/preview-check.yml
+  pull_request:
+    paths:
+      - statusline.sh
+      - docs/preview.sh
+      - README.md
+      - .github/workflows/preview-check.yml
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify README previews match statusline.sh
+        run: bash docs/preview.sh --check

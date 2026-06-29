@@ -83,11 +83,15 @@ limit_bar_color() {
 
 # Render statusline's proportional bar (filled = pct of width) in one color.
 render_bar() {  # width pct color_escape
-  local width=$1 pct=$2 color=$3 filled empty bar
+  local width=$1 pct=$2 color=$3 filled empty bar i
   [ "$pct" -gt 100 ] && pct=100
   filled=$(( pct * width / 100 ))
   empty=$(( width - filled ))
-  bar="$(printf "%${filled}s" | tr ' ' '█')$(printf "%${empty}s" | tr ' ' '░')"
+  # Concatenate the glyphs rather than `tr ' ' '<glyph>'` — tr maps by byte and
+  # corrupts the multibyte bar glyphs on GNU coreutils (mirrors statusline.sh).
+  bar=''
+  for (( i = 0; i < filled; i++ )); do bar="${bar}█"; done
+  for (( i = 0; i < empty;  i++ )); do bar="${bar}░"; done
   printf '%b%s%b' "$color" "$bar" "$RESET"
 }
 
