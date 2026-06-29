@@ -67,17 +67,18 @@ The renderer reads `~/.claude.json` → `.oauthAccount.displayName` (Claude Code
 - `effort.level` (omitted by Claude Code for models without effort support)
 - `pr.number`, `pr.review_state` (PR indicator on line 1 when `.pr` is present; glyph/color by review_state)
 - `worktree.name`, `worktree.branch` (worktree indicator on line 1 during `--worktree` sessions)
+- `version` (Claude Code CLI version; dim `v<version>` suffix on the Model line). It reflects the **process actually running this session**, not the conversation thread: a continuous run reports a fixed version, but `--resume` launches a fresh process with the currently-installed CLI, so the displayed version updates if Claude Code was upgraded between exit and resume.
 
 **Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The `Tokens` line's `In` / `Out` are labeled with that meaning.
 
-**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
+**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`, `version`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
 ## Output layout (8 lines)
 
 1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the logged-in account is present, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); when absent, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account is present.
-2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true.
+2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then a dim ` · v<version>` suffix (the Claude Code CLI version) when `version` is present.
 3. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
 4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.

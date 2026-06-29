@@ -19,6 +19,7 @@ PR_NUMBER=$(echo "$input" | jq -r '.pr.number // ""')
 PR_REVIEW=$(echo "$input" | jq -r '.pr.review_state // ""')
 WORKTREE_NAME=$(echo "$input" | jq -r '.worktree.name // ""')
 WORKTREE_BRANCH=$(echo "$input" | jq -r '.worktree.branch // ""')
+CC_VERSION=$(echo "$input" | jq -r '.version // ""')
 
 # Session token usage (In/Out reflect the current context window, not session
 # cumulative totals, since Claude Code v2.1.132)
@@ -292,6 +293,9 @@ fi
 MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
 # Extended-thinking indicator (gated on thinking.enabled)
 [ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
+# Claude Code CLI version (gated on .version). Reflects the process actually
+# running this session, so it tracks the real version even across --resume.
+[ -n "$CC_VERSION" ] && MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}v${CC_VERSION}${RESET}"
 echo -e "$MODEL_LINE"
 
 CONTEXT_LINE="${DIM}$(pad_label Context)${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"

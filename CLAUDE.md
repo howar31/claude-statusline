@@ -18,7 +18,7 @@ Two scripts:
 ## Conventions to preserve
 
 - **Every `jq` lookup in `statusline.sh` must have a `//` default.** Claude Code may add or rename schema fields; the script must degrade gracefully.
-- **Optional payload fields render gated.** Fields that may be absent (`pr.*`, `worktree.*`, `thinking.enabled`, `context_window.context_window_size`, `cost.total_api_duration_ms`) are shown only when present / non-zero, so a line never emits a stray separator or placeholder. Keep new field additions gated the same way. See `SPEC.md` → Gated fields.
+- **Optional payload fields render gated.** Fields that may be absent (`pr.*`, `worktree.*`, `thinking.enabled`, `context_window.context_window_size`, `cost.total_api_duration_ms`, `version`) are shown only when present / non-zero, so a line never emits a stray separator or placeholder. Keep new field additions gated the same way. See `SPEC.md` → Gated fields.
 - **Effort comes from stdin `.effort.level`, with no silent fallback.** It is one of `low/medium/high/xhigh/max` (Claude Code normalizes `ultracode` → `xhigh` upstream, so it never arrives literally). A *missing* field (models without effort support, e.g. Haiku 4.5) renders as a dim `—`; a *present-but-unrecognized* value renders as a loud bright-red `unknown` so schema drift stays visible. Don't reintroduce a quiet default. See `SPEC.md` → Effort level.
 - **Cross-platform `date`**: use the BSD-or-GNU fallback `date -r "$EPOCH" "+%H:%M" 2>/dev/null || date -d "@$EPOCH" "+%H:%M" 2>/dev/null`. Keep it when adding new time displays.
 - **Session id sanitization** (`tr -dc 'a-zA-Z0-9' | cut -c1-24`) is the IPC key shared by `statusline.sh` and `hooks/compact-monitor.sh`. Change one, change both.
