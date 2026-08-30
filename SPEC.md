@@ -16,19 +16,23 @@ The main renderer. Invoked by Claude Code with a JSON payload on stdin; writes e
 
 A pass-through `PreCompact` hook. Reads stdin, increments the `count` field in `/tmp/claude-compacts-<sanitized_session_id>.json`, echoes stdin back unchanged so additional `PreCompact` hooks can chain after it. Wired via `hooks.PreCompact[]` in `~/.claude/settings.json`.
 
+### `hooks/account-monitor.sh`
+
+A `SessionStart` + `UserPromptSubmit` hook that answers "whose quota is this session spending". It resolves the credential the session actually authenticates with, asks the API who owns it, and publishes the answer to `/tmp/claude-account-<sanitized_session_id>.json` for the renderer. It prints nothing (both hook events inject stdout into the session context) and returns immediately, doing its work in a detached background job. Wired via `hooks.SessionStart[]` and `hooks.UserPromptSubmit[]` in `~/.claude/settings.json`. See *Account attribution* below for the resolution order and rationale.
+
 ### `docs/swatches.sh`
 
 A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants and gradient formulas rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
 
 ### `docs/preview.sh`
 
-A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the account label and backup-drift flag (a fake `HOME`), and the compact counter (a seeded `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace` and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
+A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the backup-drift flag (a fake `HOME`), and the account label plus compact counter (seeded `/tmp/claude-account-*.json` and `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace` and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
 
 `./docs/preview.sh --check` regenerates into a temp file and diffs it against `README.md` without mutating anything — exit 0 if current, exit 1 plus the diff if stale. The output is byte-reproducible across BSD (macOS) and GNU (Linux), verified by running `--check` in an Ubuntu container against a macOS-generated README. CI enforces freshness via `.github/workflows/preview-check.yml`, which runs `bash docs/preview.sh --check` on `ubuntu-latest` whenever `statusline.sh`, `docs/preview.sh`, or `README.md` changes.
 
 ## Out-of-band IPC
 
-The renderer reads two state files written by external processes; neither is part of the statusline JSON payload.
+The renderer reads three state files written by external processes; none of them is part of the statusline JSON payload. Two are produced by this repo's own hooks (compact counter, account attribution), the third by the separate `claude-backup` project (drift flag).
 
 ### Compact counter
 
@@ -38,11 +42,40 @@ The `PreCompact` hook writes, the renderer reads: `/tmp/claude-compacts-<SANITIZ
 sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 ```
 
-**Invariant**: if you change the sanitization rule in one file, change it in the other, or the renderer will miss the count.
+**Invariant**: the same sanitization rule appears in `statusline.sh`, `hooks/compact-monitor.sh`, and `hooks/account-monitor.sh`. Change one, change all three, or the renderer will miss the count (and the account label).
 
-### Logged-in account
+### Account attribution
 
-The renderer reads `~/.claude.json` → `.oauthAccount.displayName` (Claude Code owns this file; the statusline is a read-only consumer). The login account is **not** part of the statusline JSON payload, so it is read out-of-band here, same as the compact counter and drift flag. The lookup has a `// empty` default and is gated: rendered as the line-1 account label only when non-empty, so it degrades silently if the field, file, or login is absent. `displayName` (the friendly account name, e.g. `Ada Lovelace`) is used rather than `emailAddress`/`organizationName` to keep the full email and org name out of statusline screenshots (this repo publishes `docs/*.png`).
+The line-1 account label answers one question: **which account's quota is this session spending**. Accuracy matters more than presence — a label naming the wrong account is worse than no label.
+
+`hooks/account-monitor.sh` writes, the renderer reads: `/tmp/claude-account-<SANITIZED_SESSION_ID>.json`, keyed by the same sanitization as the compact counter (same invariant applies — three files now share the rule).
+
+**Why not `~/.claude.json` → `.oauthAccount.displayName`** (which is what this repo read until 2026-08-24, and got wrong):
+
+- That block is a single machine-global slot shared by every Claude Code surface: terminal CLI, IDE extensions, and the desktop app's bundled CLI all default to config dir `~/.claude` and therefore to the same `~/.claude.json`.
+- Claude Code rewrites its identity fields (`displayName` / `emailAddress` / `accountUuid`) only during a **full profile fetch**, which is gated behind a 24h TTL on `profileFetchedAt`. Token refresh bumps `profileFetchedAt` while merging only subscription fields, so the TTL can be renewed indefinitely without the identity ever being re-checked.
+- Net effect: after switching accounts, the file can keep naming the previous account for a day or more, and whichever surface performs the next full fetch owns the slot. Observed in practice: a session authenticating as account A displayed account B's name for two days.
+- Sessions that authenticate from an env credential (`CLAUDE_CODE_OAUTH_TOKEN`, as the desktop app passes to its bundled CLI) never write the slot at all.
+
+**Resolution order** (mirrors Claude Code's own credential precedence, so the hook resolves the same credential the session authenticates with):
+
+1. `CLAUDE_CODE_OAUTH_TOKEN` → `ANTHROPIC_AUTH_TOKEN` → `ANTHROPIC_API_KEY` from the environment the session runs in.
+2. macOS: Keychain generic password, service `Claude Code-credentials`; a custom `CLAUDE_CONFIG_DIR` appends `-<sha256(dir)[0:8]>` to the service name, matching how Claude Code derives it.
+3. Otherwise: `${CLAUDE_CONFIG_DIR:-~/.claude}/.credentials.json`.
+
+In both stores the token is `.claudeAiOauth.accessToken`. The Keychain lookup tries `-a "$(id -un)"` first and falls back to a service-only match. Hashing goes through a `sha256_hex` helper that tries `shasum -a 256`, then `sha256sum`, then `openssl dgst -sha256`, so the hook works on BSD and GNU userlands alike.
+
+The token is then resolved to an owner via `GET {ANTHROPIC_BASE_URL:-https://api.anthropic.com}/api/oauth/profile` (the same endpoint Claude Code uses, `curl --max-time 5`), and cached at `/tmp/claude-account-<sha256(token)[0:12]>.json` with a 12h TTL (`PROFILE_TTL=43200`). **The cache key is the credential itself**, so a hit can never name the wrong account, and an account switch invalidates it automatically. A stale entry is preferred over a failed refresh — same token, same owner. Entries older than 7 days are pruned.
+
+**Renderer states** (`statusline.sh` reads only the per-session file; it never touches the network or the Keychain):
+
+| Session file | Label |
+|---|---|
+| absent | no label at all — hook not wired; line 1 stays flush-left, byte-identical to the pre-hook layout |
+| `displayName` is a string | the name, dim, in the shared label column |
+| `displayName` is `null` | a yellow `?` — resolution was attempted and failed; the session's usage is deliberately *not* attributed to anyone |
+
+`displayName` (e.g. `Ada Lovelace`) is stored and rendered rather than `email` / `organization` to keep addresses and org names out of statusline screenshots (this repo publishes `docs/*.png`); the resolver caches those two fields for debugging but the renderer ignores them.
 
 ### Backup drift flag
 
@@ -83,7 +116,7 @@ The renderer reads `~/.claude.json` → `.oauthAccount.displayName` (Claude Code
 
 ## Output layout (8 lines)
 
-1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the logged-in account is present, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); when absent, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account is present.
+1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the session's account has been resolved, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); an attempted-but-failed resolution renders a yellow `?` in that slot instead. With no account file at all, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account label is present.
 2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then a dim ` · v<version>` suffix (the Claude Code CLI version) when `version` is present.
 3. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
 4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
@@ -198,6 +231,20 @@ echo '{"model":{"display_name":"Claude Opus 4.7"},"session_id":"abc","cost":{"to
 
 To test the compact hook, either seed `/tmp/claude-compacts-<sanitized_id>.json` manually with `{"count":N}`, or trigger `/compact` in a real Claude Code session. The renderer picks up the count on its next invocation.
 
+To test the account hook end to end, feed it a session id and inspect what it publishes:
+
+```bash
+echo '{"session_id":"testsession-1234"}' | bash hooks/account-monitor.sh   # prints nothing
+sleep 2 && cat /tmp/claude-account-testsession1234.json                    # {"displayName":"...", ...}
+```
+
+Force the failure path (which must render as a yellow `?`, never as a wrong name) by pointing it at a credential that resolves to nobody:
+
+```bash
+CLAUDE_CODE_OAUTH_TOKEN=not-a-real-token bash -c 'echo "{\"session_id\":\"bogus-01\"}" | bash hooks/account-monitor.sh'
+sleep 6 && cat /tmp/claude-account-bogus01.json                            # {"displayName":null,"error":...}
+```
+
 ## Install / wiring
 
 Symlink the scripts into `~/.claude/` so `settings.json` references stable paths that don't depend on the repo's clone location:
@@ -205,6 +252,7 @@ Symlink the scripts into `~/.claude/` so `settings.json` references stable paths
 ```
 ~/.claude/statusline.sh             → <repo>/statusline.sh
 ~/.claude/hooks/compact-monitor.sh  → <repo>/hooks/compact-monitor.sh
+~/.claude/hooks/account-monitor.sh  → <repo>/hooks/account-monitor.sh
 ```
 
 In `~/.claude/settings.json`:
@@ -223,9 +271,26 @@ In `~/.claude/settings.json`:
           { "type": "command", "command": "bash ~/.claude/hooks/compact-monitor.sh" }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/account-monitor.sh" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/account-monitor.sh" }
+        ]
+      }
     ]
   }
 }
 ```
 
-Edits to the repo take effect immediately on the next statusline refresh — no reload needed, since the symlinks resolve to the live files. Without the `PreCompact` hook wired, the `compact Nx` counter stays at 0 (the rest of the statusline still works).
+`SessionStart` resolves the account for a new/resumed session; `UserPromptSubmit` re-checks it so an account switch mid-session is picked up on the next prompt rather than at the next session. Both are cheap: the hook returns immediately and the resolution runs detached, hitting the network only when the credential's fingerprint is not already cached.
+
+Edits to the repo take effect immediately on the next statusline refresh — no reload needed, since the symlinks resolve to the live files. Without the `PreCompact` hook wired, the `compact Nx` counter stays at 0; without the account hooks wired, line 1 shows no account label. The rest of the statusline works in both cases.

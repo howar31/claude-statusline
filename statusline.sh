@@ -249,10 +249,28 @@ fi
 
 NOW_DATETIME=$(date "+%Y.%m.%d %H:%M:%S")
 
-# Logged-in account display name. Out-of-band: ~/.claude.json is NOT part of the
-# statusline JSON payload, so this is read directly (like the compact counter and
-# drift flag). Gated — rendered only when present.
-ACCOUNT_NAME=$(jq -r '.oauthAccount.displayName // empty' "$HOME/.claude.json" 2>/dev/null)
+# Account this session is authenticated as, i.e. whose quota it is spending.
+# Out-of-band (the statusline payload carries no account field), published per
+# session by hooks/account-monitor.sh, which resolves it from the credential
+# this session actually uses.
+#
+# Deliberately NOT read from ~/.claude.json: that file's `.oauthAccount` is a
+# single machine-global slot shared by every Claude Code surface, rewritten only
+# by a full profile fetch that is gated behind a 24h TTL, so it can name a
+# different account than the one in use. See SPEC.md -> Account attribution.
+#
+#   file absent         -> hook not wired: no label at all (pre-hook layout)
+#   displayName present -> render the name
+#   displayName null    -> resolution failed: render a loud `?` rather than
+#                          silently attributing this session's usage to nobody
+ACCOUNT_NAME=""
+ACCOUNT_UNRESOLVED=0
+ACCOUNT_CACHE=""
+[ -n "$SESSION_ID" ] && ACCOUNT_CACHE="/tmp/claude-account-${SESSION_ID}.json"
+if [ -n "$ACCOUNT_CACHE" ] && [ -f "$ACCOUNT_CACHE" ]; then
+  ACCOUNT_NAME=$(jq -r '.displayName // empty' "$ACCOUNT_CACHE" 2>/dev/null)
+  [ -z "$ACCOUNT_NAME" ] && { ACCOUNT_NAME="?"; ACCOUNT_UNRESOLVED=1; }
+fi
 
 # Shared dim label column. Width is 7 by default (Model/Context/Tokens/Stats/
 # Limits), widened to the account name length when present so line 1's account
@@ -292,7 +310,9 @@ fi
 # same label column as Model/Context/... below. When the account is absent, line 1
 # stays flush-left as before.
 if [ -n "$ACCOUNT_NAME" ]; then
-  LINE1="${DIM}$(pad_label "$ACCOUNT_NAME")${RESET} ${GIT_LINE}"
+  ACCOUNT_COLOR="$DIM"
+  [ "$ACCOUNT_UNRESOLVED" = 1 ] && ACCOUNT_COLOR="$YELLOW"
+  LINE1="${ACCOUNT_COLOR}$(pad_label "$ACCOUNT_NAME")${RESET} ${GIT_LINE}"
 else
   LINE1="$GIT_LINE"
 fi

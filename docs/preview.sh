@@ -12,8 +12,8 @@
 # pinned:
 #   - clock : TZ=UTC + a `date` shim (fixed "now"; reset epochs are fixed)
 #   - git   : throwaway scratch repos give a fixed branch + diff count
-#   - HOME  : fake HOME controls the account label and backup-drift flag
-#   - compact counter : a seeded /tmp file
+#   - HOME  : fake HOME controls the backup-drift flag
+#   - account label / compact counter : seeded /tmp files
 #
 # Usage:  ./docs/preview.sh          # rewrite README.md in place
 #         ./docs/preview.sh --check  # exit 1 if README.md is out of date (CI)
@@ -40,9 +40,10 @@ FIXED_WALL="2026.01.15 09:00:00"
 SID="abc12345-6789-defg-hijk-lmnopqrstuvw"   # illustrative, obviously fake
 SAN=$(printf '%s' "$SID" | tr -dc 'a-zA-Z0-9' | cut -c1-24)
 COMPACT_FILE="/tmp/claude-compacts-${SAN}.json"
+ACCOUNT_FILE="/tmp/claude-account-${SAN}.json"
 
 WORK=$(mktemp -d)
-cleanup() { rm -rf "$WORK"; rm -f "$COMPACT_FILE"; }
+cleanup() { rm -rf "$WORK"; rm -f "$COMPACT_FILE" "$ACCOUNT_FILE"; }
 trap cleanup EXIT
 
 # --- deterministic clock ----------------------------------------------------
@@ -89,7 +90,7 @@ BASE_REPO=$(make_repo "$WORK/base" main 7 25)     # +25 -7
 FULL_REPO=$(make_repo "$WORK/full" feat 34 128)   # +128 -34
 
 # --- baseline: only always-present fields (no account / compact / drift) -----
-rm -f "$COMPACT_FILE"                               # ensure no stray compact count
+rm -f "$COMPACT_FILE" "$ACCOUNT_FILE"              # no stray compact count / account label
 BASE_HOME="$WORK/home-base"; mkdir -p "$BASE_HOME"
 cat > "$WORK/base.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
@@ -104,9 +105,11 @@ EOF
 
 # --- everything-on: account + every gated field ------------------------------
 FULL_HOME="$WORK/home-full"; mkdir -p "$FULL_HOME/.claude/system/backup"
-printf '{"oauthAccount":{"displayName":"Ada Lovelace"}}' > "$FULL_HOME/.claude.json"
 printf '3 files / 1d behind' > "$FULL_HOME/.claude/system/backup/.drift-status"
 printf '{"count":2}' > "$COMPACT_FILE"
+# Account label: what hooks/account-monitor.sh publishes for this session. The
+# name is fictitious, so no real account leaks into the committed preview.
+printf '{"displayName":"Ada Lovelace"}' > "$ACCOUNT_FILE"
 cat > "$WORK/full.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
  "thinking":{"enabled":true},"session_id":"$SID","exceeds_200k_tokens":true,
