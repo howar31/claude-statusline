@@ -98,6 +98,8 @@ The token is then resolved to an owner via `GET {ANTHROPIC_BASE_URL:-https://api
 - `context_window.current_usage.cache_read_input_tokens`
 - `context_window.current_usage.cache_creation_input_tokens`
 - `thinking.enabled` (extended-thinking marker `✦` on the Model line when true)
+- `fast_mode` (fast-mode marker `↯`, orange 256-color 202, on the Model line when true; Claude Code's own fast-mode glyph)
+- `prompt_cache.caching_observed`, `prompt_cache.warm`, `prompt_cache.expires_at` (prompt-cache expiry on the Tokens line when `caching_observed` is true). Claude Code omits `.prompt_cache` until the session's first request. `expires_at` is epoch seconds, or null when the last request cached nothing. Warm means `warm` is true **and** `expires_at` > now (re-checked by the renderer); anything else after caching was observed renders as cold. Claude Code schedules a statusline refresh at `expires_at` while warm, so the warm→cold switch renders without `refreshInterval`.
 - `rate_limits.five_hour.used_percentage`
 - `rate_limits.five_hour.resets_at`
 - `rate_limits.seven_day.used_percentage`
@@ -110,16 +112,16 @@ The token is then resolved to an owner via `GET {ANTHROPIC_BASE_URL:-https://api
 
 **Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The `Tokens` line's `In` / `Out` are labeled with that meaning.
 
-**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `pr.*`, `worktree.*`, `version`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
+**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `fast_mode`, `prompt_cache.*`, `pr.*`, `worktree.*`, `version`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
 ## Output layout (8 lines)
 
 1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the session's account has been resolved, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); an attempted-but-failed resolution renders a yellow `?` in that slot instead. With no account file at all, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account label is present.
-2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then a dim ` · v<version>` suffix (the Claude Code CLI version) when `version` is present.
+2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then ` ↯` (orange) when `fast_mode` is true, then a dim ` · v<version>` suffix (the Claude Code CLI version) when `version` is present.
 3. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
-4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
+4. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. When the prompt cache has been observed (`prompt_cache.caching_observed`), a suffix follows `Cache`: a dim `→HH:MM` (cache expiry time) while warm, or a yellow `cold` once expired. The suffix is space-separated with no `·` to stay within the width budget: the worst case `⚠ 200k+ · In 999.9k · Out 99.9k · Cache 100% →HH:MM` is 59 columns at label width 7. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
 5. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.
 6. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
 7. **(unlabeled, blank-label indent)** — 20-char 7d bar, `7D <pct>%`, reset time (indented by an empty label of the shared column width so the bar aligns under the 5h bar)
@@ -147,12 +149,13 @@ The binding lines are data-driven:
 - **Line 8** is effectively fixed at ~58 (36-char session UUID + ` · ` + 19-char timestamp) and is independent of the label column.
 - **Lines 3 / 6 / 7** are `LABEL_W + bar(30 or 20) + value/reset text`, so they grow with the shared label-column width `LABEL_W` (`max(7, len(displayName))`). A `displayName` longer than ~14 chars can push the 5h/7d lines past 60.
 - **Line 1** grows with `LABEL_W` plus the repo / branch / `+N -N` / PR / worktree extras.
+- **Line 4** (Tokens) peaks with `⚠ 200k+` plus the prompt-cache suffix: 59 columns at `LABEL_W` 7 (see Output layout).
 
 **Rule**: if a design change (new field, wider bar, longer label) would push any line past ~60 columns for realistic data, **confirm the design with the user before shipping** instead of silently overflowing. A capping/truncation strategy for an over-long account label is a candidate solution to raise at that point. This mirrors `CLAUDE.md` → Conventions to preserve → "Line width budget".
 
 ## Color specification
 
-ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `BRIGHT_RED`, `PURPLE`, `GOLD`, `BRIGHT_WHITE`, `DIM`.
+ANSI palette defined at the top of `statusline.sh`: `RESET`, `CYAN`, `MAGENTA`, `GREEN`, `YELLOW`, `BLUE`, `RED`, `BRIGHT_RED`, `PURPLE`, `GOLD`, `ORANGE`, `BRIGHT_WHITE`, `DIM`. `ORANGE` (256-color 202) is used only by the fast-mode marker `↯`.
 
 ### Context bar — smooth truecolor gradient (`\033[38;2;R;G;Bm`)
 

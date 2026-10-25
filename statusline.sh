@@ -20,6 +20,12 @@ PR_REVIEW=$(echo "$input" | jq -r '.pr.review_state // ""')
 WORKTREE_NAME=$(echo "$input" | jq -r '.worktree.name // ""')
 WORKTREE_BRANCH=$(echo "$input" | jq -r '.worktree.branch // ""')
 CC_VERSION=$(echo "$input" | jq -r '.version // ""')
+FAST_MODE=$(echo "$input" | jq -r '.fast_mode // false')
+# Prompt cache state. Claude Code omits .prompt_cache until the first request;
+# caching_observed stays false when nothing has been cached yet.
+PC_OBSERVED=$(echo "$input" | jq -r '.prompt_cache.caching_observed // false')
+PC_WARM=$(echo "$input" | jq -r '.prompt_cache.warm // false')
+PC_EXPIRES=$(echo "$input" | jq -r '.prompt_cache.expires_at // 0')
 
 # Session token usage (In/Out reflect the current context window, not session
 # cumulative totals, since Claude Code v2.1.132)
@@ -119,6 +125,7 @@ RED="\033[31m"
 BRIGHT_RED="\033[1;91m"
 PURPLE="\033[38;5;135m"
 GOLD="\033[38;5;214m"
+ORANGE="\033[38;5;202m"
 BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
 
@@ -321,6 +328,8 @@ fi
 MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
 # Extended-thinking indicator (gated on thinking.enabled)
 [ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
+# Fast mode indicator (gated on fast_mode); same glyph Claude Code uses
+[ "$FAST_MODE" = "true" ] && MODEL_LINE="${MODEL_LINE} ${ORANGE}↯${RESET}"
 # Claude Code CLI version (gated on .version). Reflects the process actually
 # running this session, so it tracks the real version even across --resume.
 [ -n "$CC_VERSION" ] && MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}v${CC_VERSION}${RESET}"
@@ -334,6 +343,17 @@ echo -e "$CONTEXT_LINE"
 TOKENS_LINE="${DIM}$(pad_label Tokens)${RESET} "
 [ "$EXCEEDS_200K" = "true" ] && TOKENS_LINE="${TOKENS_LINE}${RED}⚠ 200k+${RESET} ${DIM}·${RESET} "
 TOKENS_LINE="${TOKENS_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
+# Prompt cache expiry (gated on caching_observed): `→HH:MM` while warm, a
+# yellow `cold` once expired (the next request re-writes the whole context).
+# Warmth is re-checked against NOW in case the payload is older than expiry.
+if [ "$PC_OBSERVED" = "true" ]; then
+  if [ "$PC_WARM" = "true" ] && [ "$PC_EXPIRES" -gt "$NOW" ]; then
+    PC_EXPIRES_TIME=$(date -r "$PC_EXPIRES" "+%H:%M" 2>/dev/null || date -d "@$PC_EXPIRES" "+%H:%M" 2>/dev/null)
+    TOKENS_LINE="${TOKENS_LINE} ${DIM}→${PC_EXPIRES_TIME}${RESET}"
+  else
+    TOKENS_LINE="${TOKENS_LINE} ${YELLOW}cold${RESET}"
+  fi
+fi
 echo -e "$TOKENS_LINE"
 STATS_LINE="${DIM}$(pad_label Stats)${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
 # True API wait time (gated on cost.total_api_duration_ms)

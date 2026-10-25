@@ -112,7 +112,8 @@ printf '{"count":2}' > "$COMPACT_FILE"
 printf '{"displayName":"Ada Lovelace"}' > "$ACCOUNT_FILE"
 cat > "$WORK/full.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
- "thinking":{"enabled":true},"session_id":"$SID","exceeds_200k_tokens":true,
+ "thinking":{"enabled":true},"fast_mode":true,"session_id":"$SID","exceeds_200k_tokens":true,
+ "prompt_cache":{"warm":true,"caching_observed":true,"expires_at":$((FIXED_EPOCH+300))},
  "pr":{"number":42,"review_state":"approved"},"worktree":{"name":"wt","branch":"feat"},
  "cost":{"total_cost_usd":1.07,"total_duration_ms":1325000,"total_api_duration_ms":612000},
  "context_window":{"used_percentage":45,"context_window_size":1000000,
