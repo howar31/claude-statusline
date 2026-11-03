@@ -299,7 +299,9 @@ fi
 # messaging socket path, and the ref is sha256("session:<socket path>")[0:6]
 # (format as of Claude Code 2.1.317). Without a matching entry, fall back to
 # the payload's .session_name (the /rename or auto-generated title) with no ref;
-# with neither, the Agent line is omitted.
+# with neither, the name is omitted. The name renders in the default foreground
+# only when the registry says it was set explicitly (nameSource "user", e.g.
+# /rename); derived names and the session_name fallback render dim.
 sha256_hex() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 2>/dev/null | cut -d' ' -f1
   elif command -v sha256sum >/dev/null 2>&1; then sha256sum 2>/dev/null | cut -d' ' -f1
@@ -308,6 +310,7 @@ sha256_hex() {
 }
 AGENT_NAME=""
 AGENT_REF=""
+AGENT_SOURCE=""
 SESSIONS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
 if [ -n "$SESSION_ID_RAW" ] && [ -d "$SESSIONS_DIR" ]; then
   # grep narrows to the matching file(s) first, so one malformed registry file
@@ -318,8 +321,8 @@ if [ -n "$SESSION_ID_RAW" ] && [ -d "$SESSIONS_DIR" ]; then
     AGENT_ROW=$(jq -rs --arg id "$SESSION_ID_RAW" '
       [.[] | objects | select(.sessionId == $id and ((.name // "") | type == "string" and . != ""))]
       | sort_by(.updatedAt // 0) | last // empty
-      | (.name // ""), (.messagingSocketPath // "")' "${AGENT_FILES[@]}" 2>/dev/null)
-    { IFS= read -r AGENT_NAME; IFS= read -r AGENT_SOCK; } <<< "$AGENT_ROW"
+      | (.name // ""), (.messagingSocketPath // ""), (.nameSource // "")' "${AGENT_FILES[@]}" 2>/dev/null)
+    { IFS= read -r AGENT_NAME; IFS= read -r AGENT_SOCK; IFS= read -r AGENT_SOURCE; } <<< "$AGENT_ROW"
     if [ -n "$AGENT_NAME" ] && [ -n "$AGENT_SOCK" ]; then
       AGENT_REF=$(printf 'session:%s' "$AGENT_SOCK" | sha256_hex | cut -c1-6)
     fi
@@ -420,7 +423,11 @@ LAST_LINE=""
 add_last() { LAST_LINE="${LAST_LINE:+${LAST_LINE} ${DIM}·${RESET} }$1"; }
 [ -n "$SESSION_ID_RAW" ] && add_last "${DIM}${SESSION_ID_RAW}${RESET}"
 if [ -n "$AGENT_NAME" ]; then
-  AGENT_FMT="${AGENT_NAME}"
+  if [ "$AGENT_SOURCE" = "user" ]; then
+    AGENT_FMT="${AGENT_NAME}"
+  else
+    AGENT_FMT="${DIM}${AGENT_NAME}${RESET}"
+  fi
   [ -n "$AGENT_REF" ] && AGENT_FMT="${AGENT_FMT} ${DIM}[${AGENT_REF}]${RESET}"
   add_last "$AGENT_FMT"
 fi
