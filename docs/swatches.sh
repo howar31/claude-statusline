@@ -81,17 +81,22 @@ limit_bar_color() {
   printf '\033[38;2;%d;%d;%dm' "$r" "$g" "$b"
 }
 
-# Render statusline's proportional bar (filled = pct of width) in one color.
+# Render statusline's bar in one color (mirrors shade_bar in statusline.sh):
+# full cells, one ░/▒/▓ boundary cell for the remaining 0/1/3/2/3, then ░.
 render_bar() {  # width pct color_escape
-  local width=$1 pct=$2 color=$3 filled empty bar i
+  local width=$1 pct=$2 color=$3 units full rem bar i
   [ "$pct" -gt 100 ] && pct=100
-  filled=$(( pct * width / 100 ))
-  empty=$(( width - filled ))
+  units=$(( pct * width * 3 / 100 ))
+  full=$(( units / 3 ))
+  rem=$(( units % 3 ))
   # Concatenate the glyphs rather than `tr ' ' '<glyph>'` — tr maps by byte and
   # corrupts the multibyte bar glyphs on GNU coreutils (mirrors statusline.sh).
   bar=''
-  for (( i = 0; i < filled; i++ )); do bar="${bar}█"; done
-  for (( i = 0; i < empty;  i++ )); do bar="${bar}░"; done
+  for (( i = 0; i < full; i++ )); do bar="${bar}█"; done
+  if [ "$full" -lt "$width" ]; then
+    case $rem in 1) bar="${bar}▒" ;; 2) bar="${bar}▓" ;; *) bar="${bar}░" ;; esac
+    for (( i = full + 1; i < width; i++ )); do bar="${bar}░"; done
+  fi
   printf '%b%s%b' "$color" "$bar" "$RESET"
 }
 
@@ -120,10 +125,10 @@ model_effort_swatch() {
 context_gradient() {
   local pcts=(0 10 20 30 40 50 60 65 70 80 90) p note
   printf '\n'
-  printf "\033[1m  Context bar${RESET} ${DIM}(30 chars; gray → white@60%% → orange@65%% → red@70%%+)${RESET}\n\n"
+  printf "\033[1m  Context bar${RESET} ${DIM}(10 cells; gray → white@60%% → orange@65%% → red@70%%+)${RESET}\n\n"
   for p in "${pcts[@]}"; do
     printf '  %3d%%  ' "$p"
-    render_bar 30 "$p" "$(context_bar_color "$p")"
+    render_bar 10 "$p" "$(context_bar_color "$p")"
     note=''
     case $p in 60) note='white' ;; 65) note='orange' ;; 70) note='red' ;; esac
     [ -n "$note" ] && printf "  ${DIM}%s${RESET}" "$note"
@@ -135,10 +140,10 @@ context_gradient() {
 limit_gradient() {
   local pcts=(5 10 20 30 40 50 60 70 80 90 100) p note
   printf '\n'
-  printf "\033[1m  Limit bar${RESET} ${DIM}(20 chars; gray → white@50%% → green@70%% → yellow@80%% → red@90%%+)${RESET}\n\n"
+  printf "\033[1m  Limit bar${RESET} ${DIM}(10 cells; gray → white@50%% → green@70%% → yellow@80%% → red@90%%+)${RESET}\n\n"
   for p in "${pcts[@]}"; do
     printf '  %3d%%  ' "$p"
-    render_bar 20 "$p" "$(limit_bar_color "$p")"
+    render_bar 10 "$p" "$(limit_bar_color "$p")"
     note=''
     case $p in 50) note='white' ;; 70) note='green' ;; 80) note='yellow' ;; 90) note='red' ;; esac
     [ -n "$note" ] && printf "  ${DIM}%s${RESET}" "$note"

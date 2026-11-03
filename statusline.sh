@@ -182,18 +182,32 @@ else
 fi
 CONTEXT_BAR_COLOR="\033[38;2;${CONTEXT_R};${CONTEXT_G};${CONTEXT_B}m"
 
-# Context window progress bar
-FILLED=$(( USED * 30 / 100))
-EMPTY=$(( 30 - FILLED ))
-CONTEXT_BAR="$(repeat_glyph "$FILLED" '█')$(repeat_glyph "$EMPTY" '░')"
+# Progress bar of `w` cells at 1/3-cell resolution (floored): full cells █,
+# then one boundary cell whose shade density carries the remainder
+# (░ = 0, ▒ = 1/3, ▓ = 2/3), then ░ up to the width.
+shade_bar() {
+  local pct=$1 w=$2 units full rem out
+  [ "$pct" -gt 100 ] && pct=100
+  [ "$pct" -lt 0 ] && pct=0
+  units=$(( pct * w * 3 / 100 ))
+  full=$(( units / 3 ))
+  rem=$(( units % 3 ))
+  out=$(repeat_glyph "$full" '█')
+  if [ "$full" -lt "$w" ]; then
+    case "$rem" in
+      1) out="${out}▒" ;;
+      2) out="${out}▓" ;;
+      *) out="${out}░" ;;
+    esac
+    out="${out}$(repeat_glyph $(( w - full - 1 )) '░')"
+  fi
+  printf '%s' "$out"
+}
 
-# 5h / 7d rate limit progress bars (same width as context bar)
-SESSION_FILLED=$(( SESSION_PCT * 20 / 100 ))
-SESSION_EMPTY=$(( 20 - SESSION_FILLED ))
-SESSION_BAR="$(repeat_glyph "$SESSION_FILLED" '█')$(repeat_glyph "$SESSION_EMPTY" '░')"
-WEEKLY_FILLED=$(( WEEKLY_PCT * 20 / 100 ))
-WEEKLY_EMPTY=$(( 20 - WEEKLY_FILLED ))
-WEEKLY_BAR="$(repeat_glyph "$WEEKLY_FILLED" '█')$(repeat_glyph "$WEEKLY_EMPTY" '░')"
+# Context window and 5h / 7d rate limit progress bars (10 cells each)
+CONTEXT_BAR=$(shade_bar "$USED" 10)
+SESSION_BAR=$(shade_bar "$SESSION_PCT" 10)
+WEEKLY_BAR=$(shade_bar "$WEEKLY_PCT" 10)
 
 # Duration
 MINS=$(( DURATION_MS / 60000 ))
@@ -361,59 +375,57 @@ else
 fi
 [ -n "$LINE1" ] && echo -e "$LINE1"
 
-# Agent line (gated on a resolved name; ref only when derived from the registry)
-if [ -n "$AGENT_NAME" ]; then
-  AGENT_LINE="${DIM}$(pad_label Agent)${RESET} ${AGENT_NAME}"
-  [ -n "$AGENT_REF" ] && AGENT_LINE="${AGENT_LINE} ${DIM}[${AGENT_REF}]${RESET}"
-  echo -e "$AGENT_LINE"
-fi
-
+# Model line: model + effort + markers, then session cost, duration, API time.
 MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
 # Extended-thinking indicator (gated on thinking.enabled)
 [ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
 # Fast mode indicator (gated on fast_mode); same glyph Claude Code uses
 [ "$FAST_MODE" = "true" ] && MODEL_LINE="${MODEL_LINE} ${ORANGE}↯${RESET}"
-# Claude Code CLI version (gated on .version). Reflects the process actually
-# running this session, so it tracks the real version even across --resume.
-[ -n "$CC_VERSION" ] && MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}v${CC_VERSION}${RESET}"
+MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
+# True API wait time (gated on cost.total_api_duration_ms)
+if [ "$API_MS" -gt 0 ]; then
+  API_MINS=$(( API_MS / 60000 ))
+  API_SECS=$(( (API_MS % 60000) / 1000 ))
+  MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}API${RESET} ${API_MINS}m ${API_SECS}s"
+fi
 echo -e "$MODEL_LINE"
 
-CONTEXT_LINE="${DIM}$(pad_label Context)${RESET} ${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
-[ "$CTX_SIZE" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}$(fmt_window "$CTX_SIZE")${RESET}"
+# Context line: window size, bar, compact count, then the token counts.
+CONTEXT_LINE="${DIM}$(pad_label Context)${RESET} "
+[ "$CTX_SIZE" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE}${DIM}$(fmt_window "$CTX_SIZE")${RESET} "
+CONTEXT_LINE="${CONTEXT_LINE}${CONTEXT_BAR_COLOR}${CONTEXT_BAR}${RESET} ${CONTEXT_BAR_COLOR}${USED}%${RESET}"
 [ "$COMPACT_COUNT" -gt 0 ] && CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} ${DIM}compact ${COMPACT_COUNT}x${RESET}"
-echo -e "$CONTEXT_LINE"
-
-TOKENS_LINE="${DIM}$(pad_label Tokens)${RESET} "
-[ "$EXCEEDS_200K" = "true" ] && TOKENS_LINE="${TOKENS_LINE}${RED}⚠ 200k+${RESET} ${DIM}·${RESET} "
-TOKENS_LINE="${TOKENS_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
+CONTEXT_LINE="${CONTEXT_LINE} ${DIM}·${RESET} "
+[ "$EXCEEDS_200K" = "true" ] && CONTEXT_LINE="${CONTEXT_LINE}${RED}⚠ 200k+${RESET} ${DIM}·${RESET} "
+CONTEXT_LINE="${CONTEXT_LINE}${DIM}In${RESET} ${TOK_IN_FMT} ${DIM}·${RESET} ${DIM}Out${RESET} ${TOK_OUT_FMT} ${DIM}·${RESET} ${DIM}Cache${RESET} ${CACHE_PCT}%"
 # Prompt cache expiry (gated on caching_observed): `→HH:MM` while warm, a
 # yellow `cold` once expired (the next request re-writes the whole context).
 # Warmth is re-checked against NOW in case the payload is older than expiry.
 if [ "$PC_OBSERVED" = "true" ]; then
   if [ "$PC_WARM" = "true" ] && [ "$PC_EXPIRES" -gt "$NOW" ]; then
     PC_EXPIRES_TIME=$(date -r "$PC_EXPIRES" "+%H:%M" 2>/dev/null || date -d "@$PC_EXPIRES" "+%H:%M" 2>/dev/null)
-    TOKENS_LINE="${TOKENS_LINE} ${DIM}→${PC_EXPIRES_TIME}${RESET}"
+    CONTEXT_LINE="${CONTEXT_LINE} ${DIM}→${PC_EXPIRES_TIME}${RESET}"
   else
-    TOKENS_LINE="${TOKENS_LINE} ${YELLOW}cold${RESET}"
+    CONTEXT_LINE="${CONTEXT_LINE} ${YELLOW}cold${RESET}"
   fi
 fi
-echo -e "$TOKENS_LINE"
-STATS_LINE="${DIM}$(pad_label Stats)${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
-# True API wait time (gated on cost.total_api_duration_ms)
-if [ "$API_MS" -gt 0 ]; then
-  API_MINS=$(( API_MS / 60000 ))
-  API_SECS=$(( (API_MS % 60000) / 1000 ))
-  STATS_LINE="${STATS_LINE} ${DIM}·${RESET} ${DIM}API${RESET} ${API_MINS}m ${API_SECS}s"
-fi
-echo -e "$STATS_LINE"
-echo -e "${DIM}$(pad_label Limits)${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${DIM}5H${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT}"
-echo -e "${DIM}$(pad_label '')${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${DIM}7D${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+echo -e "$CONTEXT_LINE"
 
-if [ -n "$SESSION_ID_RAW" ]; then
-  LAST_LINE="${DIM}${SESSION_ID_RAW}${RESET} ${DIM}·${RESET} ${DIM}${NOW_DATETIME}${RESET}"
-else
-  LAST_LINE="${DIM}${NOW_DATETIME}${RESET}"
+echo -e "${DIM}$(pad_label Limits)${RESET} ${DIM}5H${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT} ${DIM}·${RESET} ${DIM}7D${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
+
+# Last line: session id, agent name [ref], Claude Code CLI version, timestamp.
+# Each part is gated. The version reflects the process actually running this
+# session, so it tracks the real version even across --resume.
+LAST_LINE=""
+add_last() { LAST_LINE="${LAST_LINE:+${LAST_LINE} ${DIM}·${RESET} }$1"; }
+[ -n "$SESSION_ID_RAW" ] && add_last "${DIM}${SESSION_ID_RAW}${RESET}"
+if [ -n "$AGENT_NAME" ]; then
+  AGENT_FMT="${AGENT_NAME}"
+  [ -n "$AGENT_REF" ] && AGENT_FMT="${AGENT_FMT} ${DIM}[${AGENT_REF}]${RESET}"
+  add_last "$AGENT_FMT"
 fi
+[ -n "$CC_VERSION" ] && add_last "${DIM}v${CC_VERSION}${RESET}"
+add_last "${DIM}${NOW_DATETIME}${RESET}"
 
 # Append ~/.claude backup drift indicator on the same line so line count stays
 # constant (no UI jump). Flag file is written by claude-backup.sh git.

@@ -4,13 +4,13 @@ Authoritative architecture and behavior spec for this repo. `CLAUDE.md` indexes 
 
 ## Purpose
 
-Render Claude Code's statusline as an 8-line colored status display (9 lines when the gated Agent line is present). Stateless one-shot Bash script — no daemon, no build, no tests.
+Render Claude Code's statusline as a 5-line colored status display. Stateless one-shot Bash script — no daemon, no build, no tests.
 
 ## Components
 
 ### `statusline.sh`
 
-The main renderer. Invoked by Claude Code with a JSON payload on stdin; writes eight or nine ANSI-colored lines to stdout (nine when the gated Agent line is present) and exits. Wired via `statusLine.command` in `~/.claude/settings.json`.
+The main renderer. Invoked by Claude Code with a JSON payload on stdin; writes five ANSI-colored lines to stdout and exits. Wired via `statusLine.command` in `~/.claude/settings.json`.
 
 ### `hooks/compact-monitor.sh`
 
@@ -22,17 +22,17 @@ A `SessionStart` + `UserPromptSubmit` hook that answers "whose quota is this ses
 
 ### `docs/swatches.sh`
 
-A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants and gradient formulas rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
+A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants, gradient formulas and bar glyph logic (`render_bar` mirrors `shade_bar`) rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
 
 ### `docs/preview.sh`
 
-A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label, Agent line + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the backup-drift flag and the session registry behind the Agent line (a fake `HOME` with a seeded `.claude/sessions/4242.json`; `CLAUDE_CONFIG_DIR` is unset for the render so the real registry never leaks in), and the account label plus compact counter (seeded `/tmp/claude-account-*.json` and `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace`, the agent name the illustrative `fix-login-4a`, and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
+A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label, agent name + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the backup-drift flag and the session registry behind the agent name (a fake `HOME` with a seeded `.claude/sessions/4242.json`; `CLAUDE_CONFIG_DIR` is unset for the render so the real registry never leaks in), and the account label plus compact counter (seeded `/tmp/claude-account-*.json` and `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace`, the agent name the illustrative `fix-login-4a`, and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
 
 `./docs/preview.sh --check` regenerates into a temp file and diffs it against `README.md` without mutating anything — exit 0 if current, exit 1 plus the diff if stale. The output is byte-reproducible across BSD (macOS) and GNU (Linux), verified by running `--check` in an Ubuntu container against a macOS-generated README. CI enforces freshness via `.github/workflows/preview-check.yml`, which runs `bash docs/preview.sh --check` on `ubuntu-latest` whenever `statusline.sh`, `docs/preview.sh`, or `README.md` changes.
 
 ## Out-of-band IPC
 
-The renderer reads four kinds of state files written by external processes; none of them is part of the statusline JSON payload. Two are produced by this repo's own hooks (compact counter, account attribution), one by Claude Code itself (the session registry behind the Agent line), and one by the separate `claude-backup` project (drift flag).
+The renderer reads four kinds of state files written by external processes; none of them is part of the statusline JSON payload. Two are produced by this repo's own hooks (compact counter, account attribution), one by Claude Code itself (the session registry behind the agent name), and one by the separate `claude-backup` project (drift flag).
 
 ### Compact counter
 
@@ -79,16 +79,16 @@ The token is then resolved to an owner via `GET {ANTHROPIC_BASE_URL:-https://api
 
 ### Agent name (session registry)
 
-The `Agent` line shows the session's name and `[ref]` exactly as `ListAgents` prints them (`name [ref]`), so a session can be identified at a glance by the name other sessions use to message it. Read-only; nothing is written.
+The session line shows the session's agent name and `[ref]` exactly as `ListAgents` prints them (`name [ref]`), so a session can be identified at a glance by the name other sessions use to message it. Read-only; nothing is written.
 
 - **Source**: Claude Code keeps an internal, undocumented per-process registry at `${CLAUDE_CONFIG_DIR:-~/.claude}/sessions/<pid>.json`. The entry whose `sessionId` equals the payload's `session_id` carries `name` (the agent name; `nameSource` is `derived` or `user`) and `messagingSocketPath`. The renderer `grep -lF`s for the session id first, then parses only the matching file(s) with `jq`, so a malformed registry file elsewhere cannot break the lookup. If several entries claim the id (the same conversation open twice), the one with the newest `updatedAt` wins.
 - **ref**: `sha256("session:" + messagingSocketPath)[0:6]`, hashed through the same `shasum` / `sha256sum` / `openssl` fallback chain as `hooks/account-monitor.sh`. Derived from Claude Code 2.1.317's ListAgents formatter (`ref = hash("<kind>:<id>").slice(0, 6)` with kind `session` and id = the socket path).
-- **Fallback**: no matching registry entry (format change, non-interactive run, missing directory) → the payload's top-level `session_name` (the `/rename` / `-n` title, else the auto-generated title) is shown with no ref. With neither, the Agent line is omitted.
-- **Stability**: the registry and the ref formula are Claude Code internals and may change between versions. A change degrades to the `session_name` fallback (or no line); it never shows a name from another session.
+- **Fallback**: no matching registry entry (format change, non-interactive run, missing directory) → the payload's top-level `session_name` (the `/rename` / `-n` title, else the auto-generated title) is shown with no ref. With neither, the name part is omitted.
+- **Stability**: the registry and the ref formula are Claude Code internals and may change between versions. A change degrades to the `session_name` fallback (or no name); it never shows a name from another session.
 
 ### Backup drift flag
 
-`claude-backup.sh git` (from the separate `claude-backup` repo, symlinked at `~/.claude/system/backup`) writes, the renderer reads: `~/.claude/system/backup/.drift-status`. If the file exists and is non-empty, its contents render as the line-8 drift indicator (`⚠ <text>`, yellow); if absent or empty, nothing is shown. This path is owned by the backup project, not this repo — the renderer is a read-only consumer that degrades silently when the file is missing.
+`claude-backup.sh git` (from the separate `claude-backup` repo, symlinked at `~/.claude/system/backup`) writes, the renderer reads: `~/.claude/system/backup/.drift-status`. If the file exists and is non-empty, its contents render as the session-line drift indicator (`⚠ <text>`, yellow); if absent or empty, nothing is shown. This path is owned by the backup project, not this repo — the renderer is a read-only consumer that degrades silently when the file is missing.
 
 ## Input JSON schema
 
@@ -99,16 +99,16 @@ The `Agent` line shows the session's name and `[ref]` exactly as `ListAgents` pr
 - `exceeds_200k_tokens`
 - `cost.total_cost_usd`
 - `cost.total_duration_ms`
-- `cost.total_api_duration_ms` (true API wait time; shown as `API` on the Stats line when > 0)
+- `cost.total_api_duration_ms` (true API wait time; shown as `API` on the Model line when > 0)
 - `context_window.used_percentage`
-- `context_window.context_window_size` (model max window; shown as `1M` / `200k` on the Context line when > 0)
+- `context_window.context_window_size` (model max window; shown as `1M` / `200k` before the Context bar when > 0)
 - `context_window.total_input_tokens`
 - `context_window.total_output_tokens`
 - `context_window.current_usage.cache_read_input_tokens`
 - `context_window.current_usage.cache_creation_input_tokens`
 - `thinking.enabled` (extended-thinking marker `✦` on the Model line when true)
 - `fast_mode` (fast-mode marker `↯`, orange 256-color 202, on the Model line when true; Claude Code's own fast-mode glyph)
-- `prompt_cache.caching_observed`, `prompt_cache.warm`, `prompt_cache.expires_at` (prompt-cache expiry on the Tokens line when `caching_observed` is true). Claude Code omits `.prompt_cache` until the session's first request. `expires_at` is epoch seconds, or null when the last request cached nothing. Warm means `warm` is true **and** `expires_at` > now (re-checked by the renderer); anything else after caching was observed renders as cold. Claude Code schedules a statusline refresh at `expires_at` while warm, so the warm→cold switch renders without `refreshInterval`.
+- `prompt_cache.caching_observed`, `prompt_cache.warm`, `prompt_cache.expires_at` (prompt-cache expiry on the Context line when `caching_observed` is true). Claude Code omits `.prompt_cache` until the session's first request. `expires_at` is epoch seconds, or null when the last request cached nothing. Warm means `warm` is true **and** `expires_at` > now (re-checked by the renderer); anything else after caching was observed renders as cold. Claude Code schedules a statusline refresh at `expires_at` while warm, so the warm→cold switch renders without `refreshInterval`.
 - `rate_limits.five_hour.used_percentage`
 - `rate_limits.five_hour.resets_at`
 - `rate_limits.seven_day.used_percentage`
@@ -117,55 +117,46 @@ The `Agent` line shows the session's name and `[ref]` exactly as `ListAgents` pr
 - `effort.level` (omitted by Claude Code for models without effort support)
 - `pr.number`, `pr.review_state` (PR indicator on line 1 when `.pr` is present; glyph/color by review_state)
 - `worktree.name`, `worktree.branch` (worktree indicator on line 1 during `--worktree` sessions)
-- `session_name` (Agent line fallback when the session registry has no entry; see Out-of-band IPC → Agent name)
-- `version` (Claude Code CLI version; dim `v<version>` suffix on the Model line). It reflects the **process actually running this session**, not the conversation thread: a continuous run reports a fixed version, but `--resume` launches a fresh process with the currently-installed CLI, so the displayed version updates if Claude Code was upgraded between exit and resume.
+- `session_name` (session-line agent-name fallback when the session registry has no entry; see Out-of-band IPC → Agent name)
+- `version` (Claude Code CLI version; dim `v<version>` on the session line). It reflects the **process actually running this session**, not the conversation thread: a continuous run reports a fixed version, but `--resume` launches a fresh process with the currently-installed CLI, so the displayed version updates if Claude Code was upgraded between exit and resume.
 
-**Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The `Tokens` line's `In` / `Out` are labeled with that meaning.
+**Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The Context line's `In` / `Out` are labeled with that meaning.
 
 **Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `fast_mode`, `prompt_cache.*`, `pr.*`, `worktree.*`, `session_name`, `version`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
-## Output layout (8 lines, 9 with the Agent line)
+## Output layout (5 lines)
 
-Numbering below is for the full 9-line layout; when the gated Agent line is absent, every line after line 1 moves up by one.
-
-1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the session's account has been resolved, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); an attempted-but-failed resolution renders a yellow `?` in that slot instead. With no account file at all, this line is flush-left as below. Omitted entirely if CWD is unknown **and** no account label is present.
-2. **`Agent  `** (gated) — `<name> [<ref>]`: the agent name in the default foreground, then the ref in dim brackets (see Out-of-band IPC → Agent name). Shown without the ref when only `session_name` is available; omitted when neither resolves.
-3. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then ` ↯` (orange) when `fast_mode` is true, then a dim ` · v<version>` suffix (the Claude Code CLI version) when `version` is present.
-4. **`Context`** — 30-char progress bar, percentage, optional ` · <window_size>` (`1M` / `200k` from `context_window_size`), optional `compact Nx`.
-5. **`Tokens `** — `In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` appears in red **before** `In` — i.e. `⚠ 200k+ · In X · Out Y · Cache Z%`. When the prompt cache has been observed (`prompt_cache.caching_observed`), a suffix follows `Cache`: a dim `→HH:MM` (cache expiry time) while warm, or a yellow `cold` once expired. The suffix is space-separated with no `·` to stay within the width budget: the worst case `⚠ 200k+ · In 999.9k · Out 99.9k · Cache 100% →HH:MM` is 59 columns at label width 7. Note: this flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
-6. **`Stats  `** — `Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0.
-7. **`Limits `** — 20-char 5h bar, `5H <pct>%`, reset time
-8. **(unlabeled, blank-label indent)** — 20-char 7d bar, `7D <pct>%`, reset time (indented by an empty label of the shared column width so the bar aligns under the 5h bar)
-9. **Session id + timestamp** (unlabeled, dim, flush-left) — `<session_id> · YYYY.MM.DD HH:MM:SS`. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line — deliberately kept on this last line so the drift flag never adds a line and the UI never jumps.
+1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the session's account has been resolved, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); an attempted-but-failed resolution renders a yellow `?` in that slot instead. With no account file at all, this line is flush-left. Omitted entirely if CWD is unknown **and** no account label is present.
+2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then ` ↯` (orange) when `fast_mode` is true, then ` · Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0. `Cost`, `Dur` and `API` are dim labels.
+3. **`Context`** — optional dim `<window_size> ` (`1M` / `200k` from `context_window_size`) **before** the bar, then the 10-cell bar, percentage, optional ` · compact Nx`, then the token counts: ` · In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` (red) appears before `In` — i.e. `… · ⚠ 200k+ · In X · Out Y · Cache Z%`. When the prompt cache has been observed (`prompt_cache.caching_observed`), a suffix follows `Cache`: a dim `→HH:MM` (cache expiry time) while warm, or a yellow `cold` once expired, space-separated with no `·`. Note: the 200k flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
+4. **`Limits `** — `5H <bar> <pct>% ↺ <reset> · 7D <bar> <pct>% ↺ <reset>`: both rate limits on one line, each label (dim) before its 10-cell bar. Reset text: `Nm (HH:MM)` / `Nh (HH:MM)` for 5H; `Nh (HH:MM)` / `Nd (MM/DD HH:MM)` for 7D; `now` once past.
+5. **Session line** (unlabeled, flush-left) — `<session_id> · <agent_name> [<ref>] · v<version> · YYYY.MM.DD HH:MM:SS`, each part gated: session id dim; agent name in the default foreground with its ref in dim brackets (see Out-of-band IPC → Agent name; the ref is absent when only `session_name` resolved, the whole part absent when neither did); `v<version>` dim, the Claude Code CLI version (see `version` in Input JSON schema); timestamp dim, the time of this render. When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line so the drift flag never adds a line and the UI never jumps.
 
 ### Alignment rules
 
-- Lines 2–7 share a dim label column (`Agent`, `Model`, `Context`, `Tokens`, `Stats`, `Limits`), each left-padded to a common width and followed by one separator space. The width is **7 by default**, but widens to the account `displayName` length when the line-1 account label is present, so all labels — including line 1's account — line up in one column. All labels are produced by a single `pad_label` helper; at width 7 it reproduces the original hardcoded labels exactly, so absent-account output is byte-identical to the pre-account layout.
-- Line 8's indent (DIM spaces of the same label width + one separator space) mirrors the `Limits` label structure so the 7d bar starts at the same column as the 5h bar.
-- The last line is flush-left so it can be scanned or copied without leading indent — its raw session id is designed for `claude --resume <id>` (Claude Code does not support prefix matching, so the full UUID is shown). Line 1 is flush-left **only when no account is present**; with an account it joins the label column (the account is its label), trading flush-left for column alignment by design.
+- Lines 2–4 share a dim label column (`Model`, `Context`, `Limits`), each left-padded to a common width and followed by one separator space. The width is **7 by default**, but widens to the account `displayName` length when the line-1 account label is present, so all labels — including line 1's account — line up in one column. All labels are produced by a single `pad_label` helper.
+- The bars on lines 3 and 4 start at the same column only when the window size is 2 characters (`1M`, matching `5H`); `200k` shifts the context bar right by 2. Percentages are not padded, so values after the bars do not align across lines.
+- The session line is flush-left so it can be scanned or copied without leading indent — its raw session id is designed for `claude --resume <id>` (Claude Code does not support prefix matching, so the full UUID is shown). Line 1 is flush-left **only when no account is present**; with an account it joins the label column (the account is its label), trading flush-left for column alignment by design.
 
-### Bar widths
+### Bars
 
-- Context bar: **30 chars**
-- 5h / 7d bars: **20 chars** each
-
-If you change a width, update the matching `pct * N / 100` calculation.
+All three bars (context, 5h, 7d) are **10 cells**, rendered by the `shade_bar <pct> <width>` helper at 1/3-cell resolution, floored: `units = pct * width * 3 / 100`, `units / 3` full cells `█`, then (unless full) one boundary cell whose shade density carries the remainder — `░` (0), `▒` (1/3), `▓` (2/3) — then `░` to the width. `pct` is clamped to 0–100. The boundary cell uses shade glyphs (not the eighth-block glyphs `▏…▉`) so the empty track keeps its `░` texture with no blank gap. To change a width, change the `shade_bar` call's width argument.
 
 ### Width budget
 
-Target: **every rendered line stays within ~60 visible columns** (measured after stripping ANSI escape codes, and excluding the last line's ` · ⚠ <drift_text>` suffix that `claude-backup` may append). This keeps the statusline readable in narrow terminals and stable across themes.
+Target: **every rendered line stays within ~120 visible columns** (measured after stripping ANSI escape codes, and excluding the session line's ` · ⚠ <drift_text>` suffix that `claude-backup` may append).
 
-The binding lines are data-driven:
+Worst cases, measured by rendering every field at its longest (label width 10; each extra label character adds one column to lines 2–4):
 
-- **Last line** is effectively fixed at ~58 (36-char session UUID + ` · ` + 19-char timestamp) and is independent of the label column.
-- **Context / Limits / 7d lines** are `LABEL_W + bar(30 or 20) + value/reset text`, so they grow with the shared label-column width `LABEL_W` (`max(7, len(displayName))`). A `displayName` longer than ~14 chars can push the 5h/7d lines past 60.
-- **Agent line** is `LABEL_W + 1 + name + 9` (` [xxxxxx]` is 9 columns with its leading space), so at `LABEL_W` 7 a name up to 43 columns fits. Derived names are short (`<repo>-<2 hex>`, e.g. `claude-statusline-c5` → 37 columns); a long `/rename` title can exceed 60. The name is not truncated, so it always matches ListAgents exactly.
-- **Line 1** grows with `LABEL_W` plus the repo / branch / `+N -N` / PR / worktree extras.
-- **Tokens line** peaks with `⚠ 200k+` plus the prompt-cache suffix: 59 columns at `LABEL_W` 7 (see Output layout).
+- **Model line**: 89 (`Claude Sonnet 4.5  unknown ✦ ↯ · Cost $9999.99 · Dur 9999m 59s · API 9999m 59s`).
+- **Context line**: 100 (`200k`, 99%, `compact 99x`, `⚠ 200k+`, `In 1000.0k · Out 128.0k`, `Cache 100% →HH:MM`).
+- **Limits line**: 83 (both at 100%, `59m (HH:MM)` and `6d (MM/DD HH:MM)`).
+- **Session line**: 36-char UUID + 19-char timestamp + `v<version>` + `<name> [ref]`; 110 with a 27-character agent name. The name is not truncated, so it always matches ListAgents exactly.
+- **Line 1** grows with the account label plus the repo / branch / `+N -N` / PR / worktree names, which are unbounded; long names can exceed the budget.
 
-**Rule**: if a design change (new field, wider bar, longer label) would push any line past ~60 columns for realistic data, **confirm the design with the user before shipping** instead of silently overflowing. A capping/truncation strategy for an over-long account label is a candidate solution to raise at that point. This mirrors `CLAUDE.md` → Conventions to preserve → "Line width budget".
+**Rule**: if a design change (new field, wider bar, longer label) would push any line past ~120 columns for realistic data, **confirm the design with the user before shipping** instead of silently overflowing. This mirrors `CLAUDE.md` → Conventions to preserve → "Line width budget".
 
 ## Color specification
 
@@ -262,7 +253,7 @@ CLAUDE_CODE_OAUTH_TOKEN=not-a-real-token bash -c 'echo "{\"session_id\":\"bogus-
 sleep 6 && cat /tmp/claude-account-bogus01.json                            # {"displayName":null,"error":...}
 ```
 
-To test the Agent line, render with the session id of a live session (from `~/.claude/sessions/*.json`) and compare the line with `ListAgents` output; render with an unknown id plus `"session_name":"x"` to see the no-ref fallback, and with neither to see the line omitted.
+To test the agent name, render with the session id of a live session (from `~/.claude/sessions/*.json`) and compare the session line with `ListAgents` output; render with an unknown id plus `"session_name":"x"` to see the no-ref fallback, and with neither to see the name omitted.
 
 ## Install / wiring
 

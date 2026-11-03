@@ -13,7 +13,7 @@
 #   - clock : TZ=UTC + a `date` shim (fixed "now"; reset epochs are fixed)
 #   - git   : throwaway scratch repos give a fixed branch + diff count
 #   - HOME  : fake HOME controls the backup-drift flag and the session
-#             registry (<HOME>/.claude/sessions) behind the Agent line;
+#             registry (<HOME>/.claude/sessions) behind the agent name;
 #             CLAUDE_CONFIG_DIR is unset so the real registry never leaks in
 #   - account label / compact counter : seeded /tmp files
 #
