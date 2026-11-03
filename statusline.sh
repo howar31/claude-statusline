@@ -279,6 +279,42 @@ if [ -n "$ACCOUNT_CACHE" ] && [ -f "$ACCOUNT_CACHE" ]; then
   [ -z "$ACCOUNT_NAME" ] && { ACCOUNT_NAME="?"; ACCOUNT_UNRESOLVED=1; }
 fi
 
+# Agent name + [ref], as ListAgents prints them. Claude Code keeps a per-process
+# registry at <config dir>/sessions/<pid>.json (internal, undocumented); the
+# entry whose sessionId matches this payload carries the agent name and the
+# messaging socket path, and the ref is sha256("session:<socket path>")[0:6]
+# (format as of Claude Code 2.1.317). Without a matching entry, fall back to
+# the payload's .session_name (the /rename or auto-generated title) with no ref;
+# with neither, the Agent line is omitted.
+sha256_hex() {
+  if command -v shasum >/dev/null 2>&1; then shasum -a 256 2>/dev/null | cut -d' ' -f1
+  elif command -v sha256sum >/dev/null 2>&1; then sha256sum 2>/dev/null | cut -d' ' -f1
+  elif command -v openssl >/dev/null 2>&1; then openssl dgst -sha256 2>/dev/null | awk '{print $NF}'
+  else cat >/dev/null; fi
+}
+AGENT_NAME=""
+AGENT_REF=""
+SESSIONS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
+if [ -n "$SESSION_ID_RAW" ] && [ -d "$SESSIONS_DIR" ]; then
+  # grep narrows to the matching file(s) first, so one malformed registry file
+  # elsewhere cannot break the jq parse. Newest entry wins if several claim it.
+  AGENT_FILES=()
+  while IFS= read -r f; do AGENT_FILES+=("$f"); done < <(grep -lF "\"$SESSION_ID_RAW\"" "$SESSIONS_DIR"/*.json 2>/dev/null)
+  if [ "${#AGENT_FILES[@]}" -gt 0 ]; then
+    AGENT_ROW=$(jq -rs --arg id "$SESSION_ID_RAW" '
+      [.[] | objects | select(.sessionId == $id and ((.name // "") | type == "string" and . != ""))]
+      | sort_by(.updatedAt // 0) | last // empty
+      | (.name // ""), (.messagingSocketPath // "")' "${AGENT_FILES[@]}" 2>/dev/null)
+    { IFS= read -r AGENT_NAME; IFS= read -r AGENT_SOCK; } <<< "$AGENT_ROW"
+    if [ -n "$AGENT_NAME" ] && [ -n "$AGENT_SOCK" ]; then
+      AGENT_REF=$(printf 'session:%s' "$AGENT_SOCK" | sha256_hex | cut -c1-6)
+    fi
+  fi
+fi
+[ -z "$AGENT_NAME" ] && AGENT_NAME=$(echo "$input" | jq -r '.session_name // ""')
+# Names are user-settable via /rename; keep backslashes literal under echo -e.
+AGENT_NAME=${AGENT_NAME//\\/\\\\}
+
 # Shared dim label column. Width is 7 by default (Model/Context/Tokens/Stats/
 # Limits), widened to the account name length when present so line 1's account
 # label and the labels below it line up in a single column. pad_label at width 7
@@ -324,6 +360,13 @@ else
   LINE1="$GIT_LINE"
 fi
 [ -n "$LINE1" ] && echo -e "$LINE1"
+
+# Agent line (gated on a resolved name; ref only when derived from the registry)
+if [ -n "$AGENT_NAME" ]; then
+  AGENT_LINE="${DIM}$(pad_label Agent)${RESET} ${AGENT_NAME}"
+  [ -n "$AGENT_REF" ] && AGENT_LINE="${AGENT_LINE} ${DIM}[${AGENT_REF}]${RESET}"
+  echo -e "$AGENT_LINE"
+fi
 
 MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${EFFORT_COLOR}${EFFORT_LEVEL}${RESET}"
 # Extended-thinking indicator (gated on thinking.enabled)

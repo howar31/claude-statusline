@@ -12,7 +12,9 @@
 # pinned:
 #   - clock : TZ=UTC + a `date` shim (fixed "now"; reset epochs are fixed)
 #   - git   : throwaway scratch repos give a fixed branch + diff count
-#   - HOME  : fake HOME controls the backup-drift flag
+#   - HOME  : fake HOME controls the backup-drift flag and the session
+#             registry (<HOME>/.claude/sessions) behind the Agent line;
+#             CLAUDE_CONFIG_DIR is unset so the real registry never leaks in
 #   - account label / compact counter : seeded /tmp files
 #
 # Usage:  ./docs/preview.sh          # rewrite README.md in place
@@ -64,7 +66,7 @@ chmod +x "$SHIM/date"
 strip_ansi() { sed $'s/\x1b\\[[0-9;]*m//g'; }
 
 render() {  # $1 = HOME dir, $2 = payload file -> plain-text statusline
-  PATH="$SHIM:$PATH" HOME="$1" bash "$RENDER" < "$2" | strip_ansi
+  env -u CLAUDE_CONFIG_DIR PATH="$SHIM:$PATH" HOME="$1" bash "$RENDER" < "$2" | strip_ansi
 }
 
 # --- scratch git repos (deterministic repo name, branch, diff count) --------
@@ -110,6 +112,11 @@ printf '{"count":2}' > "$COMPACT_FILE"
 # Account label: what hooks/account-monitor.sh publishes for this session. The
 # name is fictitious, so no real account leaks into the committed preview.
 printf '{"displayName":"Ada Lovelace"}' > "$ACCOUNT_FILE"
+# Session registry entry: what Claude Code writes to <config>/sessions/<pid>.json.
+# Name and socket path are illustrative; the [ref] is derived from the socket.
+mkdir -p "$FULL_HOME/.claude/sessions"
+printf '{"pid":4242,"sessionId":"%s","name":"fix-login-4a","nameSource":"derived","messagingSocketPath":"/tmp/cc-socks/4242.sock","updatedAt":%s000}' \
+  "$SID" "$FIXED_EPOCH" > "$FULL_HOME/.claude/sessions/4242.json"
 cat > "$WORK/full.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
  "thinking":{"enabled":true},"fast_mode":true,"session_id":"$SID","exceeds_200k_tokens":true,
