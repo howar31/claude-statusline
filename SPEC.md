@@ -22,7 +22,7 @@ A `SessionStart` + `UserPromptSubmit` hook that answers "whose quota is this ses
 
 ### `docs/swatches.sh`
 
-A developer tool (not part of the runtime). Prints the ANSI behind the three README color graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient); no arg prints all. It **duplicates** `statusline.sh`'s palette constants, gradient formulas and bar glyph logic (`render_bar` mirrors `shade_bar`) rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
+A developer tool (not part of the runtime). Prints the ANSI behind the four README graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient), `shade` (bar boundary cell at 30/34/37/40%, `docs/bar-boundary-cell.png`); no arg prints all. It **duplicates** `statusline.sh`'s palette constants, gradient formulas and bar glyph logic (`render_bar` mirrors `shade_bar`) rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
 
 ### `docs/preview.sh`
 

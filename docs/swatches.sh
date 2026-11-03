@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 #
-# swatches.sh — regenerate the source ANSI for the three README graphics.
+# swatches.sh — regenerate the source ANSI for the four README graphics.
 #
 #   docs/model-effort-colors.png   <- "model"   (model family + effort level)
 #   docs/context-bar-gradient.png  <- "context" (context bar color gradient)
 #   docs/limit-bar-gradient.png    <- "limit"   (5h/7d limit bar color gradient)
+#   docs/bar-boundary-cell.png     <- "shade"   (bar boundary-cell shade density)
 #
 # This script DUPLICATES the palette and gradient formulas from statusline.sh
 # so the docs can be regenerated consistently. It is NOT sourced by the
@@ -17,10 +18,11 @@
 # matching docs/*.png.
 #
 # Usage:
-#   ./docs/swatches.sh           # print all three sections
+#   ./docs/swatches.sh           # print all four sections
 #   ./docs/swatches.sh model     # model family + effort swatch
 #   ./docs/swatches.sh context   # context bar gradient
 #   ./docs/swatches.sh limit     # 5h/7d limit bar gradient
+#   ./docs/swatches.sh shade     # bar boundary-cell shade density
 
 # --- Palette (mirror of statusline.sh) ---------------------------------------
 GOLD="\033[38;5;214m"     # Fable / Mythos
@@ -152,11 +154,32 @@ limit_gradient() {
   printf "\n  ${DIM}(statusline.sh dims these bars; shown here at full intensity to expose the colors)${RESET}\n\n"
 }
 
+shade_cells() {
+  local pcts=(30 34 37 40) p cell note
+  local color="\033[38;2;220;220;220m"
+  printf '\n'
+  printf "\033[1m  Boundary cell${RESET} ${DIM}(10 cells; one cell = 10%%, the edge cell in thirds)${RESET}\n\n"
+  for p in "${pcts[@]}"; do
+    printf '  %3d%%  ' "$p"
+    render_bar 10 "$p" "$color"
+    case $p in
+      30) cell='░'; note='+0' ;;
+      34) cell='▒'; note='+1/3' ;;
+      37) cell='▓'; note='+2/3' ;;
+      *)  cell='';  note='' ;;
+    esac
+    [ -n "$cell" ] && printf "   %b%s%b  ${DIM}%s${RESET}" "$color" "$cell" "$RESET" "$note"
+    printf '\n'
+  done
+  printf '\n'
+}
+
 # --- Dispatch ----------------------------------------------------------------
 case "${1:-all}" in
   model)   model_effort_swatch ;;
   context) context_gradient ;;
   limit)   limit_gradient ;;
-  all)     model_effort_swatch; context_gradient; limit_gradient ;;
-  *) echo "usage: $0 [model|context|limit|all]" >&2; exit 2 ;;
+  shade)   shade_cells ;;
+  all)     model_effort_swatch; context_gradient; limit_gradient; shade_cells ;;
+  *) echo "usage: $0 [model|context|limit|shade|all]" >&2; exit 2 ;;
 esac
