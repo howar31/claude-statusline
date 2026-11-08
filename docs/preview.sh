@@ -38,7 +38,7 @@ done
 
 export TZ=UTC
 FIXED_EPOCH=1768467600          # 2026-01-15 09:00:00 UTC — the pinned "now"
-FIXED_WALL="2026.01.15 09:00:00"
+FIXED_WALL="09:00:00"
 SID="abc12345-6789-defg-hijk-lmnopqrstuvw"   # illustrative, obviously fake
 SAN=$(printf '%s' "$SID" | tr -dc 'a-zA-Z0-9' | cut -c1-24)
 COMPACT_FILE="/tmp/claude-compacts-${SAN}.json"
@@ -113,15 +113,17 @@ printf '{"count":2}' > "$COMPACT_FILE"
 # name is fictitious, so no real account leaks into the committed preview.
 printf '{"displayName":"Ada Lovelace"}' > "$ACCOUNT_FILE"
 # Session registry entry: what Claude Code writes to <config>/sessions/<pid>.json.
-# Name and socket path are illustrative; the [ref] is derived from the socket.
+# Name, socket path and bridge id are illustrative; the [ref] is derived from
+# the socket, and bridgeSessionId (Remote Control attached) renders as RC.
 mkdir -p "$FULL_HOME/.claude/sessions"
-printf '{"pid":4242,"sessionId":"%s","name":"fix-login-4a","nameSource":"derived","messagingSocketPath":"/tmp/cc-socks/4242.sock","updatedAt":%s000}' \
+printf '{"pid":4242,"sessionId":"%s","name":"fix-login-4a","nameSource":"derived","messagingSocketPath":"/tmp/cc-socks/4242.sock","bridgeSessionId":"session_preview","updatedAt":%s000}' \
   "$SID" "$FIXED_EPOCH" > "$FULL_HOME/.claude/sessions/4242.json"
 cat > "$WORK/full.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
  "thinking":{"enabled":true},"fast_mode":true,"session_id":"$SID","exceeds_200k_tokens":true,
  "prompt_cache":{"warm":true,"caching_observed":true,"expires_at":$((FIXED_EPOCH+300))},
  "pr":{"number":42,"review_state":"approved"},"worktree":{"name":"wt","branch":"feat"},
+ "remote":{"session_id":"session_preview"},
  "cost":{"total_cost_usd":1.07,"total_duration_ms":1325000,"total_api_duration_ms":612000},
  "context_window":{"used_percentage":45,"context_window_size":1000000,
    "total_input_tokens":1200,"total_output_tokens":800,

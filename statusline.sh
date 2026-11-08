@@ -20,6 +20,8 @@ PR_REVIEW=$(echo "$input" | jq -r '.pr.review_state // ""')
 WORKTREE_NAME=$(echo "$input" | jq -r '.worktree.name // ""')
 WORKTREE_BRANCH=$(echo "$input" | jq -r '.worktree.branch // ""')
 CC_VERSION=$(echo "$input" | jq -r '.version // ""')
+# Present only while this CLI is a client viewing a remote session.
+REMOTE_SESSION=$(echo "$input" | jq -r '.remote.session_id // ""')
 FAST_MODE=$(echo "$input" | jq -r '.fast_mode // false')
 # Prompt cache state. Claude Code omits .prompt_cache until the first request;
 # caching_observed stays false when nothing has been cached yet.
@@ -128,6 +130,8 @@ GOLD="\033[38;5;214m"
 ORANGE="\033[38;5;202m"
 BRIGHT_WHITE="\033[97m"
 DIM="\033[2m"
+# Black on cyan background: the session line's remote badges.
+BADGE="\033[30;46m"
 
 # Limit bar (5h / 7d) color: smooth truecolor gradient.
 # 0-50%: dark gray (50,50,50) linearly up to white (255,255,255).
@@ -268,7 +272,7 @@ if [ -n "$SESSION_ID" ]; then
   [ -f "$COMPACT_CACHE" ] && COMPACT_COUNT=$(jq -r '.count // 0' "$COMPACT_CACHE" 2>/dev/null || echo 0)
 fi
 
-NOW_DATETIME=$(date "+%Y.%m.%d %H:%M:%S")
+NOW_TIME=$(date "+%H:%M:%S")
 
 # Account this session is authenticated as, i.e. whose quota it is spending.
 # Out-of-band (the statusline payload carries no account field), published per
@@ -302,6 +306,13 @@ fi
 # with neither, the name is omitted. The name renders in the default foreground
 # only when the registry says it was set explicitly (nameSource "user", e.g.
 # /rename); derived names and the session_name fallback render dim.
+#
+# The same entry carries bridgeSessionId: a "session_..." id while Remote
+# Control is attached to this session, null or absent otherwise (Claude Code
+# 2.1.319). It is read from the newest matching entry regardless of whether
+# that entry has a name. The CLAUDE_CODE_BRIDGE_SESSION_ID env var is not used:
+# a child process started from a bridged session inherits it, so it is not
+# matched to this session's id.
 sha256_hex() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 2>/dev/null | cut -d' ' -f1
   elif command -v sha256sum >/dev/null 2>&1; then sha256sum 2>/dev/null | cut -d' ' -f1
@@ -311,6 +322,7 @@ sha256_hex() {
 AGENT_NAME=""
 AGENT_REF=""
 AGENT_SOURCE=""
+BRIDGE_SESSION=""
 SESSIONS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/sessions"
 if [ -n "$SESSION_ID_RAW" ] && [ -d "$SESSIONS_DIR" ]; then
   # grep narrows to the matching file(s) first, so one malformed registry file
@@ -319,10 +331,13 @@ if [ -n "$SESSION_ID_RAW" ] && [ -d "$SESSIONS_DIR" ]; then
   while IFS= read -r f; do AGENT_FILES+=("$f"); done < <(grep -lF "\"$SESSION_ID_RAW\"" "$SESSIONS_DIR"/*.json 2>/dev/null)
   if [ "${#AGENT_FILES[@]}" -gt 0 ]; then
     AGENT_ROW=$(jq -rs --arg id "$SESSION_ID_RAW" '
-      [.[] | objects | select(.sessionId == $id and ((.name // "") | type == "string" and . != ""))]
-      | sort_by(.updatedAt // 0) | last // empty
-      | (.name // ""), (.messagingSocketPath // ""), (.nameSource // "")' "${AGENT_FILES[@]}" 2>/dev/null)
-    { IFS= read -r AGENT_NAME; IFS= read -r AGENT_SOCK; IFS= read -r AGENT_SOURCE; } <<< "$AGENT_ROW"
+      def str: if type == "string" then gsub("[\r\n]"; "") else "" end;
+      [.[] | objects | select(.sessionId == $id)] as $all
+      | ([$all[] | select((.name // "") | type == "string" and . != "")] | sort_by(.updatedAt // 0) | last // {}) as $n
+      | ($all | sort_by(.updatedAt // 0) | last // {}) as $b
+      | ($n.name // "" | str), ($n.messagingSocketPath // "" | str), ($n.nameSource // "" | str),
+        ($b.bridgeSessionId // "" | str)' "${AGENT_FILES[@]}" 2>/dev/null)
+    { IFS= read -r AGENT_NAME; IFS= read -r AGENT_SOCK; IFS= read -r AGENT_SOURCE; IFS= read -r BRIDGE_SESSION; } <<< "$AGENT_ROW"
     if [ -n "$AGENT_NAME" ] && [ -n "$AGENT_SOCK" ]; then
       AGENT_REF=$(printf 'session:%s' "$AGENT_SOCK" | sha256_hex | cut -c1-6)
     fi
@@ -416,12 +431,19 @@ echo -e "$CONTEXT_LINE"
 
 echo -e "${DIM}$(pad_label Limits)${RESET} ${DIM}5H${RESET} ${DIM}${SESSION_BAR_COLOR}${SESSION_BAR}${RESET} ${SESSION_BAR_COLOR}${SESSION_PCT}%${RESET} ${DIM}↺${RESET} ${SESSION_RESET_FMT} ${DIM}·${RESET} ${DIM}7D${RESET} ${DIM}${WEEKLY_BAR_COLOR}${WEEKLY_BAR}${RESET} ${WEEKLY_BAR_COLOR}${WEEKLY_PCT}%${RESET} ${DIM}↺${RESET} ${WEEKLY_RESET_FMT}"
 
-# Last line: session id, agent name [ref], Claude Code CLI version, timestamp.
-# Each part is gated. The version reflects the process actually running this
-# session, so it tracks the real version even across --resume.
+# Last line: remote badges, agent name [ref], session id, Claude Code CLI
+# version, render time. Each part is gated. The version reflects the process
+# actually running this session, so it tracks the real version even across
+# --resume.
 LAST_LINE=""
 add_last() { LAST_LINE="${LAST_LINE:+${LAST_LINE} ${DIM}·${RESET} }$1"; }
-[ -n "$SESSION_ID_RAW" ] && add_last "${DIM}${SESSION_ID_RAW}${RESET}"
+# Remote badges lead the line, space-separated (the background delimits them,
+# so no `·`): Remote Control attached to this session (registry
+# bridgeSessionId), and this CLI driving a session that runs elsewhere
+# (payload .remote).
+BADGES=""
+[ -n "$BRIDGE_SESSION" ] && BADGES="${BADGE} ⇄ RC ${RESET}"
+[ -n "$REMOTE_SESSION" ] && BADGES="${BADGES:+${BADGES} }${BADGE} ⏿ remote session ${RESET}"
 if [ -n "$AGENT_NAME" ]; then
   if [ "$AGENT_SOURCE" = "user" ]; then
     AGENT_FMT="${AGENT_NAME}"
@@ -431,8 +453,9 @@ if [ -n "$AGENT_NAME" ]; then
   [ -n "$AGENT_REF" ] && AGENT_FMT="${AGENT_FMT} ${DIM}[${AGENT_REF}]${RESET}"
   add_last "$AGENT_FMT"
 fi
+[ -n "$SESSION_ID_RAW" ] && add_last "${DIM}${SESSION_ID_RAW}${RESET}"
 [ -n "$CC_VERSION" ] && add_last "${DIM}v${CC_VERSION}${RESET}"
-add_last "${DIM}${NOW_DATETIME}${RESET}"
+add_last "${DIM}${NOW_TIME}${RESET}"
 
 # Append ~/.claude backup drift indicator on the same line so line count stays
 # constant (no UI jump). Flag file is written by claude-backup.sh git.
@@ -443,4 +466,4 @@ if [ -f "$DRIFT_FLAG" ]; then
     LAST_LINE="${LAST_LINE} ${DIM}·${RESET} ${YELLOW}⚠ ${DRIFT_TEXT}${RESET}"
   fi
 fi
-echo -e "$LAST_LINE"
+echo -e "${BADGES:+${BADGES} }${LAST_LINE}"
