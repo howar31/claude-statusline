@@ -218,13 +218,49 @@ MINS=$(( DURATION_MS / 60000 ))
 SECS=$(( (DURATION_MS % 60000) / 1000 ))
 DURATION="${MINS}m ${SECS}s"
 
-# Model color by family
-case "$MODEL" in
-  *Fable*|*Mythos*) MODEL_COLOR="$GOLD" ;;
-  *Opus*)           MODEL_COLOR="$PURPLE" ;;
-  *Haiku*)          MODEL_COLOR="$GREEN" ;;
-  *)                MODEL_COLOR="$CYAN" ;;
-esac
+# Model color by family (display names, e.g. "Claude Opus 4.8" / "Fable 5.2")
+family_color() {
+  case "$1" in
+    *Fable*|*Mythos*|*fable*|*mythos*) echo "$GOLD" ;;
+    *Opus*|*opus*)    echo "$PURPLE" ;;
+    *Haiku*|*haiku*)  echo "$GREEN" ;;
+    *)                echo "$CYAN" ;;
+  esac
+}
+MODEL_COLOR=$(family_color "$MODEL")
+
+# Advisor model and call count. The payload has no advisor field; both come
+# from /tmp/claude-advisor-<id>.json, published per session by
+# hooks/advisor-monitor.sh (a Stop hook that reads the transcript
+# incrementally), so a refresh never reads the transcript. `.advisor` is the
+# model id from the latest advisor_tool attachment ("" when that attachment
+# says unavailable, or none was seen); `.count` is the number of advisor calls.
+# Absent file → neither part is shown.
+ADVISOR=""
+ADVISOR_ID=""
+ADVISOR_CALLS=0
+ADVISOR_STATE="/tmp/claude-advisor-${SESSION_ID}.json"
+if [ -n "$SESSION_ID" ] && [ -f "$ADVISOR_STATE" ]; then
+  { IFS= read -r ADVISOR_ID; IFS= read -r ADVISOR_CALLS; } < <(jq -r '
+    (.advisor // "" | if type == "string" then . else "" end),
+    (.count // 0 | if type == "number" then floor else 0 end)' "$ADVISOR_STATE" 2>/dev/null)
+  case "$ADVISOR_CALLS" in ''|*[!0-9]*) ADVISOR_CALLS=0 ;; esac
+  ADVISOR_ID=$(printf '%s' "$ADVISOR_ID" | tr -dc 'A-Za-z0-9._-')
+fi
+if [ -n "$ADVISOR_ID" ]; then
+  # "claude-fable-5-2" -> "Fable 5.2" (a trailing -YYYYMMDD date is dropped);
+  # any other shape is shown as the raw id.
+  ADVISOR_SHORT=${ADVISOR_ID#claude-}
+  [[ "$ADVISOR_SHORT" =~ -[0-9]{8}$ ]] && ADVISOR_SHORT=${ADVISOR_SHORT%-*}
+  if [[ "$ADVISOR_SHORT" =~ ^[a-z]+(-[0-9]{1,2})+$ ]]; then
+    ADVISOR_FAMILY=${ADVISOR_SHORT%%-*}
+    ADVISOR_VER=${ADVISOR_SHORT#*-}
+    ADVISOR="$(printf '%s' "${ADVISOR_FAMILY:0:1}" | tr '[:lower:]' '[:upper:]')${ADVISOR_FAMILY:1} ${ADVISOR_VER//-/.}"
+  else
+    ADVISOR="$ADVISOR_ID"
+  fi
+fi
+ADVISOR_COLOR=$(family_color "$ADVISOR")
 
 # Effort level color (aligned with Claude Code's /effort picker:
 # low=warning(yellow), medium=success(green), high=permission(blue),
@@ -399,6 +435,13 @@ MODEL_LINE="${DIM}$(pad_label Model)${RESET} ${MODEL_COLOR}${MODEL}${RESET}  ${E
 [ "$THINKING" = "true" ] && MODEL_LINE="${MODEL_LINE} ${CYAN}✦${RESET}"
 # Fast mode indicator (gated on fast_mode); same glyph Claude Code uses
 [ "$FAST_MODE" = "true" ] && MODEL_LINE="${MODEL_LINE} ${ORANGE}↯${RESET}"
+# Advisor model and call count (each gated; see above). Calls made before the
+# advisor was turned off still show as a count without a model.
+if [ -n "$ADVISOR" ] || [ "$ADVISOR_CALLS" -gt 0 ]; then
+  MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}Advisor${RESET}"
+  [ -n "$ADVISOR" ] && MODEL_LINE="${MODEL_LINE} ${ADVISOR_COLOR}${ADVISOR}${RESET}"
+  [ "$ADVISOR_CALLS" -gt 0 ] && MODEL_LINE="${MODEL_LINE} ${DIM}×${ADVISOR_CALLS}${RESET}"
+fi
 MODEL_LINE="${MODEL_LINE} ${DIM}·${RESET} ${DIM}Cost${RESET} ${COST_FMT} ${DIM}·${RESET} ${DIM}Dur${RESET} ${DURATION}"
 # True API wait time (gated on cost.total_api_duration_ms)
 if [ "$API_MS" -gt 0 ]; then

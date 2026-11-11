@@ -20,19 +20,23 @@ A pass-through `PreCompact` hook. Reads stdin, increments the `count` field in `
 
 A `SessionStart` + `UserPromptSubmit` hook that answers "whose quota is this session spending". It resolves the credential the session actually authenticates with, asks the API who owns it, and publishes the answer to `/tmp/claude-account-<sanitized_session_id>.json` for the renderer. It prints nothing (both hook events inject stdout into the session context) and returns immediately, doing its work in a detached background job. Wired via `hooks.SessionStart[]` and `hooks.UserPromptSubmit[]` in `~/.claude/settings.json`. See *Account attribution* below for the resolution order and rationale.
 
+### `hooks/advisor-monitor.sh`
+
+A `Stop` hook (once per completed reply) that tracks the session's advisor model and advisor call count from its transcript and publishes them to `/tmp/claude-advisor-<sanitized_session_id>.json`. It reads only the bytes appended since its previous run, so the cost per reply does not grow with the transcript. It prints nothing and returns immediately, doing the read in a detached background job. Wired via `hooks.Stop[]` in `~/.claude/settings.json`. See *Advisor model and call count* below.
+
 ### `docs/swatches.sh`
 
 A developer tool (not part of the runtime). Prints the ANSI behind the four README graphics — `model` (model family + effort), `context` (context bar gradient), `limit` (5h/7d limit bar gradient), `shade` (bar boundary cell at 30/34/37/40%, `docs/bar-boundary-cell.png`); no arg prints all. It **duplicates** `statusline.sh`'s palette constants, gradient formulas and bar glyph logic (`render_bar` mirrors `shade_bar`) rather than sourcing them, so the renderer stays a single drop-in file — keep the two in sync (see CLAUDE.md). It emits ANSI only, not PNGs: render a section in a 24-bit truecolor terminal, screenshot it, and save over the matching `docs/*.png`.
 
 ### `docs/preview.sh`
 
-A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label, agent name + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the backup-drift flag and the session registry behind the agent name and `⇄ RC` (a fake `HOME` with a seeded `.claude/sessions/4242.json`; `CLAUDE_CONFIG_DIR` is unset for the render so the real registry never leaks in), and the account label plus compact counter (seeded `/tmp/claude-account-*.json` and `/tmp/claude-compacts-*.json`). The account name is the fictitious `Ada Lovelace`, the agent name the illustrative `fix-login-4a`, and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
+A developer tool (not part of the runtime). Regenerates the two plain-text statusline previews in `README.md`'s *What it looks like* section — a **Baseline** (always-present fields only) and an **Everything on** (account label, agent name + every gated field) — by rewriting the blocks between the `<!-- preview:baseline -->` / `<!-- preview:full -->` markers. Unlike `swatches.sh` it does **not** duplicate renderer logic: it invokes `statusline.sh` itself against two fixed sample payloads, strips ANSI, and injects the result, so the previews can never drift from the renderer's actual formatting. It is fully deterministic — re-running with no renderer change yields no diff — because every non-deterministic input is pinned: the clock (`TZ=UTC` + a `date` shim that fixes "now" and lets reset epochs format deterministically), git branch/diff (throwaway scratch repos giving `main · +25 -7` and `feat · +128 -34`), the backup-drift flag and the session registry behind the agent name and `⇄ RC` (a fake `HOME` with a seeded `.claude/sessions/4242.json`; `CLAUDE_CONFIG_DIR` is unset for the render so the real registry never leaks in), the account label, compact counter and advisor call count (seeded `/tmp/claude-account-*.json`, `/tmp/claude-compacts-*.json` and `/tmp/claude-advisor-*.json`), and the advisor model (a one-line transcript in the scratch directory, referenced by `transcript_path` in the full payload only). The account name is the fictitious `Ada Lovelace`, the agent name the illustrative `fix-login-4a`, and the session id is an obvious placeholder, so no real personal data is emitted. Re-run after any change to `statusline.sh`'s output format; no manual paste needed (the blocks are text, not images).
 
 `./docs/preview.sh --check` regenerates into a temp file and diffs it against `README.md` without mutating anything — exit 0 if current, exit 1 plus the diff if stale. The output is byte-reproducible across BSD (macOS) and GNU (Linux), verified by running `--check` in an Ubuntu container against a macOS-generated README. CI enforces freshness via `.github/workflows/preview-check.yml`, which runs `bash docs/preview.sh --check` on `ubuntu-latest` whenever `statusline.sh`, `docs/preview.sh`, or `README.md` changes.
 
 ## Out-of-band IPC
 
-The renderer reads four kinds of state files written by external processes; none of them is part of the statusline JSON payload. Two are produced by this repo's own hooks (compact counter, account attribution), one by Claude Code itself (the session registry behind the agent name), and one by the separate `claude-backup` project (drift flag).
+The renderer reads five kinds of state files written by external processes; none of them is part of the statusline JSON payload. Three are produced by this repo's own hooks (compact counter, account attribution, advisor model and call count), one by Claude Code itself (the session registry behind the agent name), and one by the separate `claude-backup` project (drift flag).
 
 ### Compact counter
 
@@ -42,13 +46,13 @@ The `PreCompact` hook writes, the renderer reads: `/tmp/claude-compacts-<SANITIZ
 sanitized = session_id | tr -dc 'a-zA-Z0-9' | cut -c1-24
 ```
 
-**Invariant**: the same sanitization rule appears in `statusline.sh`, `hooks/compact-monitor.sh`, and `hooks/account-monitor.sh`. Change one, change all three, or the renderer will miss the count (and the account label).
+**Invariant**: the same sanitization rule appears in `statusline.sh`, `hooks/compact-monitor.sh`, `hooks/account-monitor.sh`, and `hooks/advisor-monitor.sh`. Change one, change all four, or the renderer will miss the counts (and the account label).
 
 ### Account attribution
 
 The line-1 account label answers one question: **which account's quota is this session spending**. Accuracy matters more than presence — a label naming the wrong account is worse than no label.
 
-`hooks/account-monitor.sh` writes, the renderer reads: `/tmp/claude-account-<SANITIZED_SESSION_ID>.json`, keyed by the same sanitization as the compact counter (same invariant applies — three files now share the rule).
+`hooks/account-monitor.sh` writes, the renderer reads: `/tmp/claude-account-<SANITIZED_SESSION_ID>.json`, keyed by the same sanitization as the compact counter (same invariant applies).
 
 **Why not `~/.claude.json` → `.oauthAccount.displayName`** (which is what this repo read until 2026-08-24, and got wrong):
 
@@ -95,6 +99,21 @@ The same registry entry carries `bridgeSessionId`: a `session_...` id while Remo
 - **Not available**: connection state (connected / reconnecting / error), outbound-only mode, the session URL, and whether anyone is viewing exist only inside the Claude Code process; neither the registry nor the payload exposes them.
 - **Stability**: same as the agent name; a format change makes the marker disappear, never show for another session.
 
+### Advisor model and call count
+
+`hooks/advisor-monitor.sh` writes, the renderer reads: `/tmp/claude-advisor-<SANITIZED_SESSION_ID>.json` as `{"advisor":"<model id or empty>","count":N,"ids":[...],"offset":BYTES,"path":"<transcript>","last":EPOCH}`. The renderer reads only `advisor` and `count` and renders ` · Advisor <name> ×N` on the Model line. The statusline payload has no advisor field (checked in Claude Code 2.1.322), and both facts are only in the session transcript, the model usually near its start, so the hook folds the transcript into this file incrementally and the renderer never reads the transcript.
+
+- **Advisor model** (Claude Code 2.1.322; internal, undocumented): when the advisor tool is added to or removed from the session, Claude Code writes an attachment entry `{"type":"attachment","attachment":{"type":"advisor_tool","available":true,"model":"claude-fable-5-2","toolChange":"add"}}` (`available:false`, `toolChange:"remove"` when it goes away; the binary also has `abbreviated` / `byBase` variants of the same shape). The latest such attachment is the current state: `advisor` is its `model` when `available` is true, `""` otherwise. No attachment ever → `""`. Settings files are not used: `advisorModel` there is shared across sessions, a session can override it with `--advisor` or `/advisor`, and the advisor only takes effect after Claude Code's feature and main-model compatibility checks.
+- **Not used: the per-entry `advisorModel`.** Claude Code also writes a top-level `advisorModel` on main-chain assistant entries, but it is present in sessions where the advisor tool was never added (it then names the main model, e.g. `claude-opus-5-5` on an Opus session), so it does not show whether the advisor is on.
+- **Call count**: a content block `{"type":"server_tool_use","id":"srvtoolu_...","name":"advisor",...}` in a main-chain assistant entry is one call. The same call is repeated across several transcript entries, so calls are de-duplicated by `id`.
+- **Matching**: both patterns are matched as unescaped key sequences (`"type":"server_tool_use",...,"name":"advisor"` with `grep`; `"type":"advisor_tool"` with `grep` then `jq -R 'fromjson?'`, selecting `type == "attachment"` entries). The same text inside tool output or user text is a JSON string with escaped quotes and does not match. `isSidechain` entries are skipped.
+- **Incremental read**: each run reads from the stored `offset` to the current size and consumes only complete lines; a trailing line without its newline is still being written and is left for the next run. If the transcript path differs from the stored one, the file is shorter than `offset` (rewritten or replaced), or the state file predates the `advisor` key, the state restarts from the beginning of the file. The first run on a long transcript (e.g. a resumed session) reads the whole file once.
+- **Concurrency**: a `mkdir` lock (`/tmp/claude-advisor-<id>.lock`) allows one updater per session; a lock older than 120 s is treated as left over from a killed run and taken over. The state file is replaced atomically (`mv`).
+- **Timing**: the state updates when a reply finishes (the `Stop` event), so a new session shows the advisor after its first reply, and an `/advisor` change shows after the next one. The write is detached, so a statusline refresh at the end of the reply can run before it lands; the update then appears on the following refresh.
+- **Display**: `claude-<family>-<major>-<minor>` is shortened to `<Family> <major>.<minor>` (`claude-fable-5-2` → `Fable 5.2`), with a trailing `-YYYYMMDD` dropped first (`claude-opus-4-5-20251101` → `Opus 4.5`), colored with the main model's family mapping (see Color specification → Model family). Any other id shape is shown as the raw id. Characters outside `A-Za-z0-9._-` are dropped. `×N` is dim and shown when `count` > 0. Calls made before the advisor was turned off still render as `Advisor ×N`, with no model name.
+- **Gating**: no state file (hook not wired, or no reply yet) → nothing; `advisor` empty and `count` 0 → nothing.
+- **Stability**: the transcript format is a Claude Code internal and may change between versions. A change leaves the state at its last value (no new matches) or, on a new session, empty; the state file is keyed by this session's id, so it never shows another session's value.
+
 ### Backup drift flag
 
 `claude-backup.sh git` (from the separate `claude-backup` repo, symlinked at `~/.claude/system/backup`) writes, the renderer reads: `~/.claude/system/backup/.drift-status`. If the file exists and is non-empty, its contents render as the session-line drift indicator (`⚠ <text>`, yellow); if absent or empty, nothing is shown. This path is owned by the backup project, not this repo — the renderer is a read-only consumer that degrades silently when the file is missing.
@@ -132,14 +151,14 @@ The same registry entry carries `bridgeSessionId`: a `session_...` id while Remo
 
 **Token-field semantics**: since Claude Code v2.1.132, `context_window.total_input_tokens` / `total_output_tokens` reflect the *current* context-window usage, not session-cumulative totals. The Context line's `In` / `Out` are labeled with that meaning.
 
-**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `fast_mode`, `prompt_cache.*`, `pr.*`, `worktree.*`, `remote.*`, `session_name`, `version`) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
+**Gated fields**: the fields annotated above with "when present" / "when > 0" (`cost.total_api_duration_ms`, `context_window.context_window_size`, `thinking.enabled`, `fast_mode`, `prompt_cache.*`, `pr.*`, `worktree.*`, `remote.*`, `session_name`, `version`, and the hook-published advisor model and call count) are rendered only if the source field is non-empty/non-zero, so a line never shows a stray separator or placeholder for an absent field.
 
 **Discipline**: every `jq` lookup must have a `//` default. The script must degrade gracefully if Claude Code renames, removes, or adds fields.
 
 ## Output layout (5 lines)
 
 1. **Git info**: `<repo_name> ⬠ <branch> · +N -N`, then gated extras: ` · <glyph> PR #<n>` when `.pr` is present (glyph/color by `review_state`), and ` · ⎇ <worktree>` (magenta) during `--worktree` sessions — with `@<branch>` appended only when the worktree's branch differs from its name. When the session's account has been resolved, its `displayName` is prepended as a dim label in the shared label column (so the git info aligns with the Model/Context values); an attempted-but-failed resolution renders a yellow `?` in that slot instead. With no account file at all, this line is flush-left. Omitted entirely if CWD is unknown **and** no account label is present.
-2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then ` ↯` (orange) when `fast_mode` is true, then ` · Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0. `Cost`, `Dur` and `API` are dim labels.
+2. **`Model  `** — `<model>` + effort level, then ` ✦` (cyan) when `thinking.enabled` is true, then ` ↯` (orange) when `fast_mode` is true, then ` · Advisor <name> ×N` when the advisor state has a model and/or a call count > 0 (name in family color, `×N` dim, each part gated; see Out-of-band IPC → Advisor model and call count), then ` · Cost $X.XX · Dur Xm Xs`, then ` · API Xm Xs` when `cost.total_api_duration_ms` > 0. `Advisor`, `Cost`, `Dur` and `API` are dim labels.
 3. **`Context`** — optional dim `<window_size> ` (`1M` / `200k` from `context_window_size`) **before** the bar, then the 10-cell bar, percentage, optional ` · compact Nx`, then the token counts: ` · In <X> · Out <Y> · Cache <pct>%`. When `exceeds_200k_tokens` is true, `⚠ 200k+` (red) appears before `In` — i.e. `… · ⚠ 200k+ · In X · Out Y · Cache Z%`. When the prompt cache has been observed (`prompt_cache.caching_observed`), a suffix follows `Cache`: a dim `→HH:MM` (cache expiry time) while warm, or a yellow `cold` once expired, space-separated with no `·`. Note: the 200k flag is set by Claude Code based on the current context window size, and `In`/`Out` are themselves current-context counts (see **Token-field semantics** above), so the warning can fire even when the displayed `In/Out` sum is well below 200k.
 4. **`Limits `** — `5H <bar> <pct>% ↺ <reset> · 7D <bar> <pct>% ↺ <reset>`: both rate limits on one line, each label (dim) before its 10-cell bar. Reset text: `Nm (HH:MM)` / `Nh (HH:MM)` for 5H; `Nh (HH:MM)` / `Nd (MM/DD HH:MM)` for 7D; `now` once past.
 5. **Session line** (unlabeled, flush-left) — `[ ⇄ RC ] [ ⏿ remote session ] <agent_name> [<ref>] · <session_id> · v<version> · HH:MM:SS`, each part gated. The remote badges come first, black on a cyan background (`BADGE`, `\033[30;46m`), one space inside each edge, separated from each other and from the rest by a single space with no `·` (the background delimits them): ` ⇄ RC ` while Remote Control is attached (see Out-of-band IPC → Remote Control), ` ⏿ remote session ` while `remote.session_id` is present. Then: agent name in the default foreground when the registry's `nameSource` is `user` (set explicitly, e.g. `/rename`), dim otherwise (`derived`, or the `session_name` fallback, whose source is unknown), with its ref in dim brackets (see Out-of-band IPC → Agent name; the ref is absent when only `session_name` resolved, the whole part absent when neither did); session id dim; `v<version>` dim, the Claude Code CLI version (see `version` in Input JSON schema); render time `HH:MM:SS` dim, with no date (the date rarely changes within a session). When the `~/.claude` backup drift flag is present and non-empty, ` · ⚠ <drift_text>` (yellow) is appended on this same line so the drift flag never adds a line and the UI never jumps.
@@ -160,7 +179,7 @@ Target: **every rendered line stays within ~120 visible columns** (measured afte
 
 Worst cases, measured by rendering every field at its longest (label width 10; each extra label character adds one column to lines 2–4):
 
-- **Model line**: 89 (`Claude Sonnet 4.5  unknown ✦ ↯ · Cost $9999.99 · Dur 9999m 59s · API 9999m 59s`).
+- **Model line**: 89 without an advisor (`Claude Sonnet 4.5  unknown ✦ ↯ · Cost $9999.99 · Dur 9999m 59s · API 9999m 59s`), 109 with `Advisor Fable 5.2`, plus 2 + the digit count for ` ×N` (` ×2` adds 3, ` ×12` adds 4). An advisor id in an unexpected shape is shown raw and is unbounded; one longer than 20 characters pushes this worst case over 120.
 - **Context line**: 100 (`200k`, 99%, `compact 99x`, `⚠ 200k+`, `In 1000.0k · Out 128.0k`, `Cache 100% →HH:MM`).
 - **Limits line**: 83 (both at 100%, `59m (HH:MM)` and `6d (MM/DD HH:MM)`).
 - **Session line**: badges (`⇄ RC` 7, `⏿ remote session` 19, each with its trailing space) + `<name> [ref]` + 36-char UUID + `v<version>` + 8-char time; 97 with a 27-character agent name and no badge, 104 with `RC`, 123 with both. Both badges at once needs Remote Control attached to a remote-mode client, which is not a usual setup. The name is not truncated, so it always matches ListAgents exactly.
@@ -195,6 +214,8 @@ The context bar is **not** wrapped in DIM — the gradient renders at full inten
 The bar is wrapped in DIM so the gradient reads softly against labels; the percentage uses the same truecolor **without** DIM so the number stays legible. The `Limits ` label, the `5H` / `7D` markers, and the `↺` reset separator are also DIM.
 
 ### Model family
+
+Applied to `model.display_name` and to the advisor model (matched case-insensitively there, since a raw id is lowercase):
 
 - `*Fable*` / `*Mythos*` → `$GOLD` (256-color 214) — the Mythos-class tier above Opus
 - `*Opus*` → `$PURPLE` (256-color 135)
@@ -265,6 +286,15 @@ sleep 6 && cat /tmp/claude-account-bogus01.json                            # {"d
 
 To test the agent name, render with the session id of a live session (from `~/.claude/sessions/*.json`) and compare the session line with `ListAgents` output; render with an unknown id plus `"session_name":"x"` to see the no-ref fallback, and with neither to see the name omitted. For Remote Control, render with the id of a registry entry whose `bridgeSessionId` is set (run `/remote-control` in a live session) to see the `⇄ RC` badge, and with one whose value is `null` to see it omitted; add `"remote":{"session_id":"x"}` to the payload to see the `⏿ remote session` badge.
 
+To test the advisor model and call count, run the hook against a copy of a transcript under a throwaway session id and inspect the state file (the hook prints nothing and works in the background):
+
+```bash
+echo '{"session_id":"advtest1","transcript_path":"/path/to/copy.jsonl"}' | bash hooks/advisor-monitor.sh
+sleep 1 && jq -c '{advisor,count,offset}' /tmp/claude-advisor-advtest1.json
+```
+
+Then append to the copy and re-run: a partial last line (no newline) must not advance `offset`, a repeated `id` must not increase `count`, a `"isSidechain":true` line and an escaped copy inside a string must not count, and truncating the file must restart the state. For the model: an assistant entry with a top-level `advisorModel` but no `advisor_tool` attachment must leave `advisor` empty; an `available:true` attachment sets it, a later `available:false` one clears it, and an escaped copy inside a string changes nothing; a state file without the `advisor` key must be read again from the start. Render with the throwaway session id to see the Model line.
+
 ## Install / wiring
 
 Symlink the scripts into `~/.claude/` so `settings.json` references stable paths that don't depend on the repo's clone location:
@@ -273,6 +303,7 @@ Symlink the scripts into `~/.claude/` so `settings.json` references stable paths
 ~/.claude/statusline.sh             → <repo>/statusline.sh
 ~/.claude/hooks/compact-monitor.sh  → <repo>/hooks/compact-monitor.sh
 ~/.claude/hooks/account-monitor.sh  → <repo>/hooks/account-monitor.sh
+~/.claude/hooks/advisor-monitor.sh  → <repo>/hooks/advisor-monitor.sh
 ```
 
 In `~/.claude/settings.json`:
@@ -306,11 +337,18 @@ In `~/.claude/settings.json`:
           { "type": "command", "command": "bash ~/.claude/hooks/account-monitor.sh" }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash ~/.claude/hooks/advisor-monitor.sh" }
+        ]
+      }
     ]
   }
 }
 ```
 
-`SessionStart` resolves the account for a new/resumed session; `UserPromptSubmit` re-checks it so an account switch mid-session is picked up on the next prompt rather than at the next session. Both are cheap: the hook returns immediately and the resolution runs detached, hitting the network only when the credential's fingerprint is not already cached.
+`SessionStart` resolves the account for a new/resumed session; `UserPromptSubmit` re-checks it so an account switch mid-session is picked up on the next prompt rather than at the next session. Both are cheap: the hook returns immediately and the resolution runs detached, hitting the network only when the credential's fingerprint is not already cached. `Stop` updates the advisor model and call count after each reply, also detached.
 
-Edits to the repo take effect immediately on the next statusline refresh — no reload needed, since the symlinks resolve to the live files. Without the `PreCompact` hook wired, the `compact Nx` counter stays at 0; without the account hooks wired, line 1 shows no account label. The rest of the statusline works in both cases.
+Edits to the repo take effect immediately on the next statusline refresh — no reload needed, since the symlinks resolve to the live files. Without the `PreCompact` hook wired, the `compact Nx` counter stays at 0; without the account hooks wired, line 1 shows no account label; without the `Stop` hook wired, the Model line has no advisor part. The rest of the statusline works in all cases.

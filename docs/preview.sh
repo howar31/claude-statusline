@@ -15,7 +15,8 @@
 #   - HOME  : fake HOME controls the backup-drift flag and the session
 #             registry (<HOME>/.claude/sessions) behind the agent name;
 #             CLAUDE_CONFIG_DIR is unset so the real registry never leaks in
-#   - account label / compact counter : seeded /tmp files
+#   - account label / compact counter / advisor model + call count : seeded
+#     /tmp files
 #
 # Usage:  ./docs/preview.sh          # rewrite README.md in place
 #         ./docs/preview.sh --check  # exit 1 if README.md is out of date (CI)
@@ -43,9 +44,10 @@ SID="abc12345-6789-defg-hijk-lmnopqrstuvw"   # illustrative, obviously fake
 SAN=$(printf '%s' "$SID" | tr -dc 'a-zA-Z0-9' | cut -c1-24)
 COMPACT_FILE="/tmp/claude-compacts-${SAN}.json"
 ACCOUNT_FILE="/tmp/claude-account-${SAN}.json"
+ADVISOR_FILE="/tmp/claude-advisor-${SAN}.json"
 
 WORK=$(mktemp -d)
-cleanup() { rm -rf "$WORK"; rm -f "$COMPACT_FILE" "$ACCOUNT_FILE"; }
+cleanup() { rm -rf "$WORK"; rm -f "$COMPACT_FILE" "$ACCOUNT_FILE" "$ADVISOR_FILE"; }
 trap cleanup EXIT
 
 # --- deterministic clock ----------------------------------------------------
@@ -92,7 +94,7 @@ BASE_REPO=$(make_repo "$WORK/base" main 7 25)     # +25 -7
 FULL_REPO=$(make_repo "$WORK/full" feat 34 128)   # +128 -34
 
 # --- baseline: only always-present fields (no account / compact / drift) -----
-rm -f "$COMPACT_FILE" "$ACCOUNT_FILE"              # no stray compact count / account label
+rm -f "$COMPACT_FILE" "$ACCOUNT_FILE" "$ADVISOR_FILE"   # no stray compact count / account label / advisor count
 BASE_HOME="$WORK/home-base"; mkdir -p "$BASE_HOME"
 cat > "$WORK/base.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
@@ -118,6 +120,9 @@ printf '{"displayName":"Ada Lovelace"}' > "$ACCOUNT_FILE"
 mkdir -p "$FULL_HOME/.claude/sessions"
 printf '{"pid":4242,"sessionId":"%s","name":"fix-login-4a","nameSource":"derived","messagingSocketPath":"/tmp/cc-socks/4242.sock","bridgeSessionId":"session_preview","updatedAt":%s000}' \
   "$SID" "$FIXED_EPOCH" > "$FULL_HOME/.claude/sessions/4242.json"
+# Advisor model + call count: what hooks/advisor-monitor.sh publishes for this
+# session.
+printf '{"advisor":"claude-fable-5-2","count":2}' > "$ADVISOR_FILE"
 cat > "$WORK/full.json" <<EOF
 {"model":{"display_name":"Claude Opus 4.8"},"version":"2.1.195","effort":{"level":"xhigh"},
  "thinking":{"enabled":true},"fast_mode":true,"session_id":"$SID","exceeds_200k_tokens":true,
